@@ -13,10 +13,10 @@ Read `AGENTS.md` completely before starting any work. It contains:
 
 ## Quick Reference
 
-- **Domain:** `ha_integration_domain`
-- **Title:** Integration Blueprint
-- **Class prefix:** `IntegrationBlueprint`
-- **Main code:** `custom_components/ha_integration_domain/`
+- **Domain:** `hacs_bisly`
+- **Title:** Bisly Home Assistant Websockets Integration
+- **Class prefix:** `Bisly`
+- **Main code:** `custom_components/hacs_bisly/`
 - **Validate:** `script/check` (type-check + lint + spell)
 - **Test:** `script/test`
 - **Run HA:** `./script/develop`
