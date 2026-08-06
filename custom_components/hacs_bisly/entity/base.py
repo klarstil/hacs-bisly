@@ -1,19 +1,15 @@
 """
 Base entity class for hacs_bisly.
 
-This module provides the base entity class that all integration entities inherit from.
-It handles common functionality like device info, unique IDs, and coordinator integration.
-
-For more information on entities:
-https://developers.home-assistant.io/docs/core/entity
-https://developers.home-assistant.io/docs/core/entity/index/#common-properties
+All integration entities inherit from this class, which provides
+coordinator integration, unique ID generation, and device info.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from custom_components.hacs_bisly.const import ATTRIBUTION
+from custom_components.hacs_bisly.const import ATTRIBUTION, DOMAIN, MANUFACTURER, MODEL
 from custom_components.hacs_bisly.coordinator import BislyDataUpdateCoordinator
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -26,15 +22,11 @@ class BislyEntity(CoordinatorEntity[BislyDataUpdateCoordinator]):
     """
     Base entity class for hacs_bisly.
 
-    All entities in this integration inherit from this class, which provides:
+    Provides:
     - Automatic coordinator updates
     - Device info management
     - Unique ID generation
     - Attribution and naming conventions
-
-    For more information:
-    https://developers.home-assistant.io/docs/core/entity
-    https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
     """
 
     _attr_attribution = ATTRIBUTION
@@ -49,22 +41,15 @@ class BislyEntity(CoordinatorEntity[BislyDataUpdateCoordinator]):
         Initialize the base entity.
 
         Args:
-            coordinator: The data update coordinator for this entity.
-            entity_description: The entity description defining characteristics.
-
+            coordinator: The data update coordinator.
+            entity_description: The entity description.
         """
         super().__init__(coordinator)
         self.entity_description = entity_description
-        # Include entity description key in unique_id to support multiple entities
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_{entity_description.key}"
         self._attr_device_info = DeviceInfo(
-            identifiers={
-                (
-                    coordinator.config_entry.domain,
-                    coordinator.config_entry.entry_id,
-                ),
-            },
+            identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
             name=coordinator.config_entry.title,
-            manufacturer=coordinator.config_entry.domain,
-            model=coordinator.data.get("model", "Unknown"),
+            manufacturer=MANUFACTURER,
+            model=MODEL,
         )

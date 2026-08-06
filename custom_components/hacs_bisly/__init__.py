@@ -1,19 +1,16 @@
 """
 Custom integration to integrate hacs_bisly with Home Assistant.
 
-This integration demonstrates best practices for:
-- Config flow setup (user, reconfigure, reauth)
-- DataUpdateCoordinator pattern for efficient data fetching
-- Multiple platform types (sensor, binary_sensor, switch, select, number)
-- Service registration and handling
-- Device and entity management
-- Proper error handling and recovery
-
-For more details about this integration, please refer to:
-https://github.com/klarstil/hacs-bisly
-
-For integration development guidelines:
-https://developers.home-assistant.io/docs/creating_integration_manifest
+Bisly Smart Home Websockets Integration — connects to the Bisly cloud
+via NATS WebSocket for real-time monitoring and control of:
+- Lighting (on/off, dimming, RGB)
+- Climate (heating, cooling, floor heating)
+- Ventilation
+- Curtains / blinds
+- Doors / access control
+- Security areas
+- Energy counters
+- Saunas
 """
 
 from __future__ import annotations
@@ -27,10 +24,9 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.loader import async_get_loaded_integration
 
 from .api import BislyApiClient
-from .const import DOMAIN, LOGGER
+from .const import DEFAULT_UPDATE_INTERVAL_SECONDS, DOMAIN, LOGGER, MIN_UPDATE_INTERVAL_SECONDS
 from .coordinator import BislyDataUpdateCoordinator
 from .data import BislyData
-from .service_actions import async_setup_services
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -39,41 +35,18 @@ if TYPE_CHECKING:
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
-    Platform.BUTTON,
-    Platform.FAN,
-    Platform.NUMBER,
-    Platform.SELECT,
+    Platform.CAMERA,
+    Platform.CLIMATE,
+    Platform.LIGHT,
     Platform.SENSOR,
     Platform.SWITCH,
 ]
 
-# This integration is configured via config entries only
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """
-    Set up the integration.
-
-    This is called once at Home Assistant startup to register service actions.
-    Service actions must be registered here (not in async_setup_entry) to ensure:
-    - Service action validation works correctly
-    - Service actions are available even without config entries
-    - Helpful error messages are provided
-
-    This is a Silver Quality Scale requirement.
-
-    Args:
-        hass: The Home Assistant instance.
-        config: The Home Assistant configuration.
-
-    Returns:
-        True if setup was successful.
-
-    For more information:
-    https://developers.home-assistant.io/docs/dev_101_services
-    """
-    await async_setup_services(hass)
+    """Set up the integration — register services."""
     return True
 
 
@@ -82,25 +55,13 @@ async def async_setup_entry(
     entry: BislyConfigEntry,
 ) -> bool:
     """
-    Set up this integration using UI.
+    Set up the Bisly integration from a config entry.
 
-    This is called when a config entry is loaded. It:
-    1. Creates the API client with credentials from the config entry
-    2. Initializes the DataUpdateCoordinator for data fetching
-    3. Performs the first data refresh
-    4. Sets up all platforms (sensors, switches, etc.)
-    5. Registers services
-    6. Sets up reload listener for config changes
-
-    Data flow in this integration:
-    1. User enters username/password in config flow (config_flow.py)
-    2. Credentials stored in entry.data[CONF_USERNAME/CONF_PASSWORD]
-    3. API Client initialized with credentials (api/client.py)
-    4. Coordinator fetches data using authenticated client (coordinator/base.py)
-    5. Entities access data via self.coordinator.data (sensor/, binary_sensor/, etc.)
-
-    This pattern ensures credentials from setup flow are used throughout
-    the integration's lifecycle for API communication.
+    1. Creates the API client with stored credentials
+    2. Initializes the push-based DataUpdateCoordinator
+    3. Performs first refresh (authenticate, connect, fetch initial state)
+    4. Sets up platforms
+    5. Registers the shutdown listener
 
     Args:
         hass: The Home Assistant instance.
@@ -108,25 +69,30 @@ async def async_setup_entry(
 
     Returns:
         True if setup was successful.
-
-    For more information:
-    https://developers.home-assistant.io/docs/config_entries_index/#setting-up-an-entry
     """
-    # Initialize client first
+    # Initialize API client (username/password from config flow)
     client = BislyApiClient(
-        username=entry.data[CONF_USERNAME],  # From config flow setup
-        password=entry.data[CONF_PASSWORD],  # From config flow setup
+        username=entry.data[CONF_USERNAME],
+        password=entry.data[CONF_PASSWORD],
         session=async_get_clientsession(hass),
     )
 
-    # Initialize coordinator with config_entry
+    # Push-based coordinator — polls controller_list to sync state changes
+    # from other clients (Bisly app). Broadcasts are session-scoped on this
+    # server and don't arrive for app changes.
+    update_interval_hours = entry.options.get("update_interval_hours")
+    if update_interval_hours is not None:
+        update_seconds = max(update_interval_hours * 3600, MIN_UPDATE_INTERVAL_SECONDS)
+    else:
+        update_seconds = DEFAULT_UPDATE_INTERVAL_SECONDS
+
     coordinator = BislyDataUpdateCoordinator(
         hass=hass,
         logger=LOGGER,
         name=DOMAIN,
         config_entry=entry,
-        update_interval=timedelta(hours=1),
-        always_update=False,  # Only update entities when data actually changes
+        update_interval=timedelta(seconds=update_seconds),
+        always_update=False,
     )
 
     # Store runtime data
@@ -136,11 +102,15 @@ async def async_setup_entry(
         coordinator=coordinator,
     )
 
-    # https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
+    # First refresh: authenticate, connect NATS, fetch initial state
     await coordinator.async_config_entry_first_refresh()
 
+    # Forward setup to platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Register shutdown and reload listeners
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+    entry.async_on_unload(coordinator.async_shutdown)
 
     return True
 
@@ -149,25 +119,8 @@ async def async_unload_entry(
     hass: HomeAssistant,
     entry: BislyConfigEntry,
 ) -> bool:
-    """
-    Unload a config entry.
-
-    This is called when the integration is being removed or reloaded.
-    It ensures proper cleanup of:
-    - All platform entities
-    - Registered services
-    - Update listeners
-
-    Args:
-        hass: The Home Assistant instance.
-        entry: The config entry being unloaded.
-
-    Returns:
-        True if unload was successful.
-
-    For more information:
-    https://developers.home-assistant.io/docs/config_entries_index/#unloading-entries
-    """
+    """Unload a config entry."""
+    await entry.runtime_data.client.disconnect()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
@@ -175,17 +128,5 @@ async def async_reload_entry(
     hass: HomeAssistant,
     entry: BislyConfigEntry,
 ) -> None:
-    """
-    Reload config entry.
-
-    This is called when the integration configuration or options have changed.
-    It unloads and then reloads the integration with the new configuration.
-
-    Args:
-        hass: The Home Assistant instance.
-        entry: The config entry being reloaded.
-
-    For more information:
-    https://developers.home-assistant.io/docs/config_entries_index/#reloading-entries
-    """
+    """Reload a config entry."""
     await hass.config_entries.async_reload(entry.entry_id)

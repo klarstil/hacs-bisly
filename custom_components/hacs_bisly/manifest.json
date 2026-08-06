@@ -5,9 +5,13 @@
     "@klarstil"
   ],
   "config_flow": true,
+  "dependencies": [],
   "documentation": "https://github.com/klarstil/hacs-bisly",
   "integration_type": "hub",
-  "iot_class": "cloud_polling",
+  "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/klarstil/hacs-bisly/issues",
+  "requirements": [
+    "aiortc>=1.9.0"
+  ],
   "version": "0.1.0"
 }

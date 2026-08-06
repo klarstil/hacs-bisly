@@ -1,8 +1,4 @@
-"""Diagnostics support for hacs_bisly.
-
-Learn more about diagnostics:
-https://developers.home-assistant.io/docs/core/integration_diagnostics
-"""
+"""Diagnostics support for hacs_bisly."""
 
 from __future__ import annotations
 
@@ -12,18 +8,20 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.redact import async_redact_data
 
+from .const import CONF_AUTH_HASH
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from .data import BislyConfigEntry
 
-# Fields to redact from diagnostics - CRITICAL for security!
 TO_REDACT = {
     CONF_PASSWORD,
     CONF_USERNAME,
+    CONF_AUTH_HASH,
     "username",
     "password",
-    "api_key",
+    "auth_hash",
     "token",
 }
 
@@ -37,12 +35,11 @@ async def async_get_config_entry_diagnostics(
     client = entry.runtime_data.client
     integration = entry.runtime_data.integration
 
-    # Get device and entity information
+    # Device/entity registry
     device_reg = dr.async_get(hass)
     entity_reg = er.async_get(hass)
-
-    # Find all devices for this integration
     devices = dr.async_entries_for_config_entry(device_reg, entry.entry_id)
+
     device_info = []
     for device in devices:
         entities = er.async_entries_for_device(entity_reg, device.id)
@@ -67,20 +64,18 @@ async def async_get_config_entry_diagnostics(
             }
         )
 
-    # Coordinator statistics
     coordinator_info = {
         "last_update_success": coordinator.last_update_success,
-        "update_interval": str(coordinator.update_interval),
         "data_keys": list(coordinator.data.keys()) if isinstance(coordinator.data, dict) else None,
     }
 
-    # API client information (no sensitive data)
     api_info = {
-        "base_endpoint": "https://jsonplaceholder.typicode.com",
         "has_credentials": bool(client._username),  # noqa: SLF001
+        "connected": client._transport.connected if hasattr(client, "_transport") else False,  # noqa: SLF001
+        "server_id": client.server_id,
+        "user_id": client.user_id,
     }
 
-    # Integration information
     integration_info = {
         "name": integration.name,
         "version": integration.version,
@@ -89,7 +84,6 @@ async def async_get_config_entry_diagnostics(
         "issue_tracker": integration.issue_tracker,
     }
 
-    # Config entry details (with redacted sensitive data)
     entry_info = {
         "entry_id": entry.entry_id,
         "version": entry.version,
@@ -103,22 +97,10 @@ async def async_get_config_entry_diagnostics(
         "options": async_redact_data(entry.options, TO_REDACT),
     }
 
-    # Error information
     error_info = {
         "last_exception": str(coordinator.last_exception) if coordinator.last_exception else None,
-        "last_exception_type": (type(coordinator.last_exception).__name__ if coordinator.last_exception else None),
+        "last_exception_type": type(coordinator.last_exception).__name__ if coordinator.last_exception else None,
     }
-
-    # Current data sample (sanitized)
-    data_sample = {}
-    if coordinator.data:
-        if isinstance(coordinator.data, dict):
-            # Include sample data but sanitize sensitive info
-            data_sample = {
-                "title": coordinator.data.get("title"),
-                "body_length": len(coordinator.data.get("body", "")) if coordinator.data.get("body") else 0,
-                "has_user_id": "userId" in coordinator.data,
-            }
 
     return {
         "entry": entry_info,
@@ -126,6 +108,5 @@ async def async_get_config_entry_diagnostics(
         "coordinator": coordinator_info,
         "api": api_info,
         "devices": device_info,
-        "data_sample": data_sample,
         "error": error_info,
     }

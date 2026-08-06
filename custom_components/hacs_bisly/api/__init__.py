@@ -9,7 +9,7 @@ Architecture:
 Exception hierarchy:
     BislyApiClientError (base)
     ├── BislyApiClientCommunicationError (network/timeout)
-    └── BislyApiClientAuthenticationError (401/403)
+    └── BislyApiClientAuthenticationError (auth failures)
 
 Coordinator exception mapping:
     ApiClientAuthenticationError → ConfigEntryAuthFailed (triggers reauth)
@@ -23,10 +23,14 @@ from .client import (
     BislyApiClientCommunicationError,
     BislyApiClientError,
 )
+from .nats_transport import BislyNATSConnectionError, BislyNATSTransport, BislyNATSTransportError
 
 __all__ = [
     "BislyApiClient",
     "BislyApiClientAuthenticationError",
     "BislyApiClientCommunicationError",
     "BislyApiClientError",
+    "BislyNATSConnectionError",
+    "BislyNATSTransport",
+    "BislyNATSTransportError",
 ]

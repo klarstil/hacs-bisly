@@ -2,11 +2,6 @@
 Credential validators.
 
 Validation functions for user credentials and authentication.
-
-When this file grows, consider splitting into:
-- credentials.py: Basic credential validation
-- oauth.py: OAuth-specific validation
-- api_auth.py: API authentication methods
 """
 
 from __future__ import annotations
@@ -20,27 +15,32 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 
-async def validate_credentials(hass: HomeAssistant, username: str, password: str) -> None:
+async def validate_credentials(hass: HomeAssistant, username: str, password: str) -> dict[str]:
     """
-    Validate user credentials by testing API connection.
+    Validate user credentials by performing a Bisly handshake.
 
     Args:
         hass: Home Assistant instance.
-        username: The username to validate.
-        password: The password to validate.
+        username: The Bisly username to validate.
+        password: The Bisly password to validate.
+
+    Returns:
+        The authentication response dict with user_id and server_id.
 
     Raises:
         BislyApiClientAuthenticationError: If credentials are invalid.
         BislyApiClientCommunicationError: If communication fails.
         BislyApiClientError: For other API errors.
-
     """
     client = BislyApiClient(
         username=username,
         password=password,
         session=async_create_clientsession(hass),
     )
-    await client.async_get_data()  # May raise authentication/communication errors
+    try:
+        return await client.authenticate()
+    finally:
+        await client.disconnect()
 
 
 __all__ = [

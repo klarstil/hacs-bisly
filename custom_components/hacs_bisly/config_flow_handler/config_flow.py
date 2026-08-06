@@ -14,18 +14,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from slugify import slugify
-
-from custom_components.hacs_bisly.config_flow_handler.schemas import (
-    get_reauth_schema,
-    get_reconfigure_schema,
-    get_user_schema,
-)
-from custom_components.hacs_bisly.config_flow_handler.validators import validate_credentials
-from custom_components.hacs_bisly.const import DOMAIN, LOGGER
+from custom_components.hacs_bisly.const import CONF_AUTH_HASH, CONF_SERVER_ID, CONF_USER_ID, DOMAIN, LOGGER
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.loader import async_get_loaded_integration
+
+from .schemas import get_reauth_schema, get_reconfigure_schema, get_user_schema
+from .validators import validate_credentials
 
 if TYPE_CHECKING:
     from custom_components.hacs_bisly.config_flow_handler.options_flow import BislyOptionsFlow
@@ -64,11 +59,8 @@ class BislyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             The options flow instance for modifying integration options.
-
         """
-        from custom_components.hacs_bisly.config_flow_handler.options_flow import (  # noqa: PLC0415
-            BislyOptionsFlow,
-        )
+        from custom_components.hacs_bisly.config_flow_handler.options_flow import BislyOptionsFlow  # noqa: PLC0415
 
         return BislyOptionsFlow()
 
@@ -86,13 +78,12 @@ class BislyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             The config flow result, either showing a form or creating an entry.
-
         """
         errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
-                await validate_credentials(
+                auth_response = await validate_credentials(
                     self.hass,
                     username=user_input[CONF_USERNAME],
                     password=user_input[CONF_PASSWORD],
@@ -100,26 +91,30 @@ class BislyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception as exception:  # noqa: BLE001
                 errors["base"] = self._map_exception_to_error(exception)
             else:
-                # Set unique ID based on username
-                # NOTE: This is just an example - use a proper unique ID in production
-                # See: https://developers.home-assistant.io/docs/config_entries_config_flow_handler#unique-ids
-                await self.async_set_unique_id(slugify(user_input[CONF_USERNAME]))
+                # Use user_id from the authentication response as the stable unique ID
+                user_id = str(auth_response.get("user_id", ""))
+                await self.async_set_unique_id(user_id)
                 self._abort_if_unique_id_configured()
 
+                # Store credentials plus auth state in the config entry
                 return self.async_create_entry(
                     title=user_input[CONF_USERNAME],
-                    data=user_input,
+                    data={
+                        CONF_USERNAME: user_input[CONF_USERNAME],
+                        CONF_PASSWORD: user_input[CONF_PASSWORD],
+                        CONF_USER_ID: auth_response.get("user_id"),
+                        CONF_SERVER_ID: auth_response.get("serverID", ""),
+                        CONF_AUTH_HASH: auth_response.get("auth_hash", ""),
+                    },
                 )
 
         integration = async_get_loaded_integration(self.hass, DOMAIN)
-        assert integration.documentation is not None, "Integration documentation URL is not set in manifest.json"
-
         return self.async_show_form(
             step_id="user",
             data_schema=get_user_schema(user_input),
             errors=errors,
             description_placeholders={
-                "documentation_url": integration.documentation,
+                "documentation_url": integration.documentation or "#",
             },
         )
 
@@ -138,14 +133,13 @@ class BislyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             The config flow result, either showing a form or updating the entry.
-
         """
         entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
-                await validate_credentials(
+                auth_response = await validate_credentials(
                     self.hass,
                     username=user_input[CONF_USERNAME],
                     password=user_input[CONF_PASSWORD],
@@ -155,7 +149,13 @@ class BislyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 return self.async_update_reload_and_abort(
                     entry,
-                    data=user_input,
+                    data={
+                        CONF_USERNAME: user_input[CONF_USERNAME],
+                        CONF_PASSWORD: user_input[CONF_PASSWORD],
+                        CONF_USER_ID: auth_response.get("user_id"),
+                        CONF_SERVER_ID: auth_response.get("serverID", ""),
+                        CONF_AUTH_HASH: auth_response.get("auth_hash", ""),
+                    },
                 )
 
         return self.async_show_form(
@@ -168,19 +168,7 @@ class BislyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self,
         entry_data: dict[str, Any] | None = None,
     ) -> config_entries.ConfigFlowResult:
-        """
-        Handle reauthentication when credentials are invalid.
-
-        This flow is automatically triggered when the coordinator catches
-        an authentication error (ConfigEntryAuthFailed).
-
-        Args:
-            entry_data: The existing entry data (unused, per convention).
-
-        Returns:
-            The result of the reauth_confirm step.
-
-        """
+        """Handle reauthentication when credentials expire."""
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -191,20 +179,13 @@ class BislyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         Handle reauthentication confirmation.
 
         Shows the reauthentication form and processes updated credentials.
-
-        Args:
-            user_input: The user input with updated credentials, or None for initial display.
-
-        Returns:
-            The config flow result, either showing a form or updating the entry.
-
         """
         entry = self._get_reauth_entry()
         errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
-                await validate_credentials(
+                auth_response = await validate_credentials(
                     self.hass,
                     username=user_input[CONF_USERNAME],
                     password=user_input[CONF_PASSWORD],
@@ -214,7 +195,14 @@ class BislyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 return self.async_update_reload_and_abort(
                     entry,
-                    data={**entry.data, **user_input},
+                    data={
+                        **entry.data,
+                        CONF_USERNAME: user_input[CONF_USERNAME],
+                        CONF_PASSWORD: user_input[CONF_PASSWORD],
+                        CONF_USER_ID: auth_response.get("user_id"),
+                        CONF_SERVER_ID: auth_response.get("serverID", ""),
+                        CONF_AUTH_HASH: auth_response.get("auth_hash", ""),
+                    },
                 )
 
         return self.async_show_form(
@@ -235,7 +223,6 @@ class BislyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             The error key for display in the config flow form.
-
         """
         LOGGER.warning("Error in config flow: %s", exception)
         exception_name = type(exception).__name__
