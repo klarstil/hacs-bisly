@@ -139,7 +139,10 @@ class _BislyWebRTCSession:
 
         @self._hpc.on("connectionstatechange")
         async def ha_conn() -> None:
-            if self._closed or not self._hpc or self._hpc.connectionState != "failed":
+            if not self._hpc:
+                return
+            LOGGER.info("HA peer connection state: %s (session=%s)", self._hpc.connectionState, self.session_id)
+            if self._closed or self._hpc.connectionState != "failed":
                 return
             if not self._err_sent:
                 self._err_sent = True
@@ -211,7 +214,12 @@ class _BislyWebRTCSession:
 
         @self._bpc.on("connectionstatechange")
         async def b_conn() -> None:
-            if self._closed or not self._bpc or self._bpc.connectionState != "failed":
+            if not self._bpc:
+                return
+            LOGGER.info(
+                "Bisly peer connection state: %s (session=%s)", self._bpc.connectionState, self.session_id
+            )
+            if self._closed or self._bpc.connectionState != "failed":
                 return
             if not self._err_sent:
                 self._err_sent = True

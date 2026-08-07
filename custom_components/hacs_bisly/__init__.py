@@ -18,13 +18,24 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from webrtc_models import RTCIceServer
+
+from homeassistant.components.web_rtc import async_register_ice_servers
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 from homeassistant.loader import async_get_loaded_integration
 
 from .api import BislyApiClient
-from .const import DEFAULT_UPDATE_INTERVAL_SECONDS, DOMAIN, LOGGER, MIN_UPDATE_INTERVAL_SECONDS
+from .const import (
+    DEFAULT_UPDATE_INTERVAL_SECONDS,
+    DOMAIN,
+    LOGGER,
+    MIN_UPDATE_INTERVAL_SECONDS,
+    WEBRTC_TURN_CREDENTIAL,
+    WEBRTC_TURN_SERVERS,
+    WEBRTC_TURN_USERNAME,
+)
 from .coordinator import BislyDataUpdateCoordinator
 from .data import BislyData
 
@@ -45,8 +56,20 @@ PLATFORMS: list[Platform] = [
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
+def _get_webrtc_ice_servers() -> list[RTCIceServer]:
+    """Return the Bisly TURN servers as ICE servers for the browser's RTCPeerConnection."""
+    return [
+        RTCIceServer(urls=[url], username=WEBRTC_TURN_USERNAME, credential=WEBRTC_TURN_CREDENTIAL)
+        for url in WEBRTC_TURN_SERVERS
+    ]
+
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up the integration — register services."""
+    """Set up the integration — register services and WebRTC ICE servers."""
+    # Direct host candidates often fail (browsers mDNS-obfuscate them and HA
+    # may run where mDNS doesn't resolve, e.g. containers) — give the browser
+    # a TURN relay path on the same infrastructure the integration uses.
+    async_register_ice_servers(hass, _get_webrtc_ice_servers)
     return True
 
 
