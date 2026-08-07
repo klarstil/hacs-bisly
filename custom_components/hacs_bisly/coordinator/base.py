@@ -220,7 +220,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Subsequent refreshes: lightweight re-fetch of controller_list only.
         # Broadcasts already keep state in sync for HA-initiated changes; the
-        # 5s poll catches changes from the Bisly app or physical switches.
+        # 15s poll catches changes from the Bisly app or physical switches.
         client = self.config_entry.runtime_data.client
         return await self._refresh_devices(client)
 
