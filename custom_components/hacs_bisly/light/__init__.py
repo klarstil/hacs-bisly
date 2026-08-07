@@ -8,7 +8,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from custom_components.hacs_bisly.const import LIGHTING_RGB_TYPES, LIGHTING_SLIDER_TYPES, LOGGER
+from custom_components.hacs_bisly.const import (
+    DOMAIN,
+    LIGHTING_RGB_TYPES,
+    LIGHTING_SLIDER_TYPES,
+    LOGGER,
+    MANUFACTURER,
+    MODEL,
+)
 from custom_components.hacs_bisly.entity.base import BislyEntity
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -17,6 +24,7 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityDescription,
 )
+from homeassistant.helpers.device_registry import DeviceInfo
 
 if TYPE_CHECKING:
     from custom_components.hacs_bisly.coordinator import BislyDataUpdateCoordinator
@@ -63,6 +71,18 @@ class BislyLight(BislyEntity, LightEntity):
         self._attr_name = device_label
         self._attr_unique_id = (
             f"{coordinator.config_entry.entry_id}_light_{room_id}_{device_id}_{device_data.get('sw', 0)}"
+        )
+        self._attr_device_info = DeviceInfo(
+            identifiers={
+                (
+                    DOMAIN,
+                    f"{coordinator.config_entry.entry_id}_light_{room_id}_{device_id}_{device_data.get('sw', 0)}",
+                )
+            },
+            name=device_label,
+            manufacturer=MANUFACTURER,
+            model=MODEL,
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
         )
 
         # Determine color mode from device type

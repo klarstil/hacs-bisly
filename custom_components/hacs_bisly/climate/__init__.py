@@ -9,11 +9,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from custom_components.hacs_bisly.api import BislyApiClientError
-from custom_components.hacs_bisly.const import LOGGER
+from custom_components.hacs_bisly.const import DOMAIN, LOGGER, MANUFACTURER, MODEL
 from custom_components.hacs_bisly.entity.base import BislyEntity
 from homeassistant.components.climate import ClimateEntity, ClimateEntityDescription, ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
 
 if TYPE_CHECKING:
     from custom_components.hacs_bisly.coordinator import BislyDataUpdateCoordinator
@@ -55,6 +56,13 @@ class BislyClimate(BislyEntity, ClimateEntity):
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_climate_{room_id}"
         self._attr_has_entity_name = False
         self._attr_name = f"{room_label} Climate"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_climate_{room_id}")},
+            name=f"{room_label} Climate",
+            manufacturer=MANUFACTURER,
+            model=MODEL,
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
 
     def _zone(self) -> dict[str, Any]:
         """Return the current climate zone data from the coordinator."""

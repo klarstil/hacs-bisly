@@ -15,7 +15,10 @@ import aiohttp
 from custom_components.hacs_bisly.const import (
     CAMERA_IMAGE_CACHE_WINDOW,
     CAMERA_IMAGE_URL,
+    DOMAIN,
     LOGGER,
+    MANUFACTURER,
+    MODEL,
     WEBRTC_TURN_CREDENTIAL,
     WEBRTC_TURN_SERVERS,
     WEBRTC_TURN_USERNAME,
@@ -23,6 +26,7 @@ from custom_components.hacs_bisly.const import (
 from homeassistant.components.camera import Camera, CameraEntityDescription, CameraEntityFeature
 from homeassistant.components.camera.webrtc import WebRTCAnswer, WebRTCCandidate, WebRTCError, WebRTCSendMessage
 from homeassistant.core import callback
+from homeassistant.helpers.device_registry import DeviceInfo
 
 try:
     from aiortc import (
@@ -320,6 +324,13 @@ class BislyCamera(Camera):
         self._cuid = cdata.get("camera_uuid", self._cid)
         self._attr_name = cdata.get("label", f"Camera {self._cid}")
         self._attr_unique_id = f"{coord.config_entry.entry_id}_camera_{self._cid}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{coord.config_entry.entry_id}_camera_{self._cid}")},
+            name=self._attr_name,
+            manufacturer=MANUFACTURER,
+            model=MODEL,
+            via_device=(DOMAIN, coord.config_entry.entry_id),
+        )
         self._srv = coord.config_entry.runtime_data.client.server_id
 
     @property

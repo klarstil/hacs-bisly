@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from custom_components.hacs_bisly.const import LOGGER
+from custom_components.hacs_bisly.const import DOMAIN, LOGGER, MANUFACTURER, MODEL
 from custom_components.hacs_bisly.entity.base import BislyEntity
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorEntityDescription, SensorStateClass
 from homeassistant.const import CONCENTRATION_PARTS_PER_MILLION, PERCENTAGE, UnitOfTemperature
+from homeassistant.helpers.device_registry import DeviceInfo
 
 if TYPE_CHECKING:
     from custom_components.hacs_bisly.coordinator import BislyDataUpdateCoordinator
@@ -65,6 +66,14 @@ class BislySensor(BislyEntity, SensorEntity):
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_sensor_{room_id}_{entity_description.key}"
         self._attr_has_entity_name = False
         self._attr_name = f"{room_name} {self.entity_description.name}"
+        # Attach to the room's climate device (shared with thermostat + floor heating)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_climate_{room_id}")},
+            name=f"{room_name} Climate",
+            manufacturer=MANUFACTURER,
+            model=MODEL,
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
 
     @property
     def native_value(self) -> float | None:
