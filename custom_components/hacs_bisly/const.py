@@ -52,6 +52,7 @@ COMMAND_SCENARIO = "scenario"
 COMMAND_AWAY = "away"
 COMMAND_STATE = "state"
 COMMAND_VIDEOSERVER = "videoserver"
+COMMAND_FONO = "fono"
 
 # Camera controller type (for controller_list type="14")
 CTRL_TYPE_CAMERA = "14"
@@ -82,6 +83,26 @@ DOORS_DISARM_AREA = "13"
 DOORS_MANAGE_PIN = "14"
 DOORS_GET_PIN_STATUS = "15"
 
+# Fono (intercom call) message types
+FONO_GET_CALL = "GET_CALL"
+FONO_GET_ICE = "GET_ICE"
+FONO_GET_DOORS = "GET_DOORS"
+FONO_GET_CAMERA = "GET_CAMERA"
+FONO_ANSWER = "ANSWER"
+FONO_HANGUP = "HANGUP"
+FONO_ICE_CANDIDATE = "ICE_CANDIDATE"
+FONO_LOG = "LOG"
+FONO_NO_CALL = "NO_CALL"
+FONO_RING_PREFIX = "RING"
+
+# Broadcast types (Bisly app ServerBroadcast)
+BROADCAST_INTERCOM_CALL = "2"
+BROADCAST_CALL_ENDED = "3"
+BROADCAST_CALL_ENDED_ELSEWHERE = "7"
+BROADCAST_CALL_END = "8"
+BROADCAST_DOORBELL = "10"
+BROADCAST_DOOR_NOTIFICATION = "11"
+
 # Device kind taxonomy
 KIND_LIGHTING_DEVICE = "lighting.device"
 KIND_LIGHTING_SCENE = "lighting.scene"
@@ -99,6 +120,7 @@ SUBJECT_CLOUD_EMAIL = "cloud.email"
 SUBJECT_COMMANDS_CLOUD = "commands.cloud"
 SUBJECT_COMMANDS = "commands"
 SUBJECT_BROADCAST = "broadcast"
+SUBJECT_BROADCAST_STATUS = "broadcast.status"
 SUBJECT_ACCOUNT = "account"
 SUBJECT_LOG = "log"
 
@@ -130,6 +152,7 @@ DEFAULT_UPDATE_INTERVAL_SECONDS = 15
 MIN_UPDATE_INTERVAL_SECONDS = 5
 DEFAULT_ENABLE_DEBUGGING = False
 CAMERA_REFRESH_INTERVAL_SECONDS = 3600  # 1 hour — cameras rarely change
+DEVICE_REFRESH_INTERVAL_SECONDS = 3600  # 1 hour — room/device list rarely changes; broadcasts keep state live
 
 # Bisly device info
 MANUFACTURER = "Bisly"

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grill-me/SKILL.md",
+      "computedHash": "9cdbb4b8f7a3aeaef82e6230c9e823500d4a8a1214c726cf342cf9829d34fc7d"
+    },
+    "ha-integration-knowledge": {
+      "source": "home-assistant/core",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/ha-integration-knowledge/SKILL.md",
+      "computedHash": "205f21832aee357842f17afbfe0e57b51c8fa34b7b9ac62ebec4cd529b637158"
+    },
+    "home-assistant-best-practices": {
+      "source": "homeassistant-ai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/home-assistant-best-practices/SKILL.md",
+      "computedHash": "84c7739f2d966311c7fcad43c7188735de5496d0e79d70957f370b5c73f6cace"
+    },
+    "improve-codebase-architecture": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
+      "computedHash": "2449db6ab1ded9581f69fcc56c1f64818112d05e271fd4c5da23c6523f9d3d9d"
+    }
+  }
+}

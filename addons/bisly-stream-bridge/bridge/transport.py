@@ -1,56 +1,29 @@
-"""
-NATS WebSocket transport for hacs_bisly.
+"""NATS WebSocket transport for the Bisly stream bridge.
 
-This module implements a raw NATS text protocol client over aiohttp WebSocket.
-The Bisly app uses a custom lightweight NATS implementation, not the standard
-nats.py library. This transport mirrors that approach.
-
-Protocol reference:
-- CONNECT:  client sends credentials as JSON
-- PING/PONG: keepalive (server sends PING, client responds PONG)
-- SUB:      subscribe to a subject
-- PUB:      publish a message
-- MSG:      incoming message (reply or broadcast)
-- +OK:      positive acknowledgment
-- -ERR:     error from server
-
-Message routing:
-- Replies (with request_id matching) → resolve pending request future
-- Broadcasts (with broadcast_id) → notify registered broadcast listeners
+Ported from custom_components/hacs_bisly/api/nats_transport.py without
+Home Assistant dependencies.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 import json
 import random
 import time
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import aiohttp
 from aiohttp import WSMsgType
 
-from custom_components.hacs_bisly.const import (
-    BISLY_NATS_PASS,
-    BISLY_NATS_USER,
-    BISLY_WS_URL,
-    LOGGER,
-    NATS_CONNECT_TEMPLATE,
-)
+from .constants import BISLY_NATS_PASS, BISLY_NATS_USER, BISLY_WS_URL, LOGGER, NATS_CONNECT_TEMPLATE
 
-if TYPE_CHECKING:
-    from collections.abc import Awaitable
-
-# Character set for generating inbox UUIDs (matches the app's generateShortUUID)
 _INBOX_CHARS = "abcdefghijklmnopqrstuvwxyz123456789"
 _INBOX_LENGTH = 8
 
-# Reconnection settings
-_MAX_RECONNECT_ATTEMPTS = 99999  # Effectively unlimited (matches the Bisly app)
-_RECONNECT_BASE_DELAY = 1.0  # seconds
-_RECONNECT_MAX_DELAY = 60.0  # seconds
-_PING_TIMEOUT = 60  # seconds without PING before considering connection dead
+_MAX_RECONNECT_ATTEMPTS = 99999
+_RECONNECT_BASE_DELAY = 1.0
+_RECONNECT_MAX_DELAY = 60.0
 
 
 class BislyNATSTransportError(Exception):
@@ -67,57 +40,31 @@ def _generate_inbox() -> str:
 
 
 class BislyNATSTransport:
-    """
-    Raw NATS text protocol transport over aiohttp WebSocket.
-
-    Handles WebSocket lifecycle, NATS protocol messages, PING/PONG keepalive,
-    request-reply routing, and broadcast distribution.
-
-    Usage:
-        transport = BislyNATSTransport(session)
-        await transport.connect()
-        await transport.subscribe("broadcast.myserver")
-        transport.add_broadcast_listener(callback)
-        response = await transport.publish("commands.myserver", {"command": "..."})
-        transport.disconnect()
-    """
+    """Raw NATS text protocol transport over aiohttp WebSocket."""
 
     def __init__(self, session: aiohttp.ClientSession) -> None:
-        """Initialize the transport.
-
-        Args:
-            session: The aiohttp ClientSession to use for WebSocket connections.
-        """
         self._session = session
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._inbox: str = _generate_inbox()
 
-        # Subscription tracking
         self._sid_counter: int = 1
         self._subscribed: set[str] = set()
 
-        # Pending request-reply futures: request_id → Future[dict]
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
-
-        # Broadcast listeners
         self._broadcast_listeners: list[Callable[[dict[str, Any]], Awaitable[None]]] = []
+        self._reconnect_callbacks: list[Callable[[], Awaitable[None]]] = []
 
-        # Connection state
         self._connected: bool = False
         self._reconnect_attempt: int = 0
-        self._last_ping: float = 0.0
         self._receive_task: asyncio.Task[None] | None = None
-        self._ping_task: asyncio.Task[None] | None = None
         self._should_reconnect: bool = True
         self._connection_lock: asyncio.Lock = asyncio.Lock()
-        self._reconnect_callbacks: list[Callable[[], Awaitable[None]]] = []
 
     async def connect(self) -> None:
         """Connect to the Bisly NATS WebSocket server."""
         async with self._connection_lock:
             if self._connected:
                 return
-
             self._should_reconnect = True
             await self._connect_ws()
 
@@ -137,34 +84,17 @@ class BislyNATSTransport:
         return self._inbox
 
     def add_broadcast_listener(self, callback: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
-        """Register a callback for broadcast messages.
-
-        Args:
-            callback: An async callable that receives the parsed JSON broadcast message.
-        """
+        """Register a callback for broadcast messages."""
         if callback not in self._broadcast_listeners:
             self._broadcast_listeners.append(callback)
 
-    def remove_broadcast_listener(self, callback: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
-        """Unregister a broadcast listener callback."""
-        if callback in self._broadcast_listeners:
-            self._broadcast_listeners.remove(callback)
-
     def add_reconnect_callback(self, callback: Callable[[], Awaitable[None]]) -> None:
-        """Register a callback to be called after a successful reconnect.
-
-        Args:
-            callback: An async callable invoked after reconnect is established.
-        """
+        """Register a callback invoked after a successful reconnect."""
         if callback not in self._reconnect_callbacks:
             self._reconnect_callbacks.append(callback)
 
     async def subscribe(self, subject: str) -> None:
-        """Subscribe to a NATS subject.
-
-        Args:
-            subject: The NATS subject to subscribe to.
-        """
+        """Subscribe to a NATS subject."""
         if subject not in self._subscribed:
             sid = self._sid_counter
             self._sid_counter += 1
@@ -179,23 +109,9 @@ class BislyNATSTransport:
         request_id: int | None = None,
         timeout: float = 15.0,
     ) -> dict[str, Any] | None:
-        """Publish a message to a NATS subject.
+        """Publish a message to a NATS subject and await the reply if expected.
 
-        For commands that expect a reply (action != "set"), it creates a future
-        and waits for the response. Fire-and-forget (action "set") returns None.
-
-        Args:
-            subject: The NATS subject to publish to.
-            payload: The JSON-serializable payload to send.
-            request_id: Optional request ID (generated if not provided).
-            timeout: Timeout in seconds for waiting for a reply.
-
-        Returns:
-            The parsed JSON response, or None for fire-and-forget messages.
-
-        Raises:
-            BislyNATSConnectionError: If the transport is not connected.
-            TimeoutError: If no reply is received within the timeout.
+        Fire-and-forget payloads (action == "set") return None immediately.
         """
         if not self.connected:
             raise BislyNATSConnectionError("NATS transport is not connected")
@@ -203,20 +119,15 @@ class BislyNATSTransport:
         json_str = json.dumps(payload)
         msg = f"PUB {subject} {self._inbox} {len(json_str)}\r\n{json_str}\r\n"
 
-        is_fire_and_forget = payload.get("action") == "set"
-
-        if is_fire_and_forget:
+        if payload.get("action") == "set":
             await self._ws.send_str(msg)  # type: ignore[union-attr]
             return None
 
-        # Register the reply future BEFORE sending to avoid a race where a fast
-        # reply arrives between send_str and the pending dict insertion.
         if request_id is None:
             request_id = int(payload.get("request_id", 0))
 
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
-
         try:
             await self._ws.send_str(msg)  # type: ignore[union-attr]
             async with asyncio.timeout(timeout):
@@ -225,18 +136,7 @@ class BislyNATSTransport:
             self._pending.pop(request_id, None)
 
     async def publish_fire_and_forget(self, subject: str, payload: dict[str, Any]) -> None:
-        """Publish a message without registering a reply future.
-
-        Used for messages that never receive a reply (e.g. broadcast.status
-        acknowledgements), where waiting would otherwise time out.
-
-        Args:
-            subject: The NATS subject to publish to.
-            payload: The JSON-serializable payload to send.
-
-        Raises:
-            BislyNATSConnectionError: If the transport is not connected.
-        """
+        """Publish a message without registering a reply future."""
         if not self.connected:
             raise BislyNATSConnectionError("NATS transport is not connected")
 
@@ -257,11 +157,9 @@ class BislyNATSTransport:
             LOGGER.error("Failed to connect to %s: %s", BISLY_WS_URL, exc)
             raise BislyNATSConnectionError(f"Failed to connect: {exc}") from exc
 
-        # Send NATS CONNECT
         connect_msg = NATS_CONNECT_TEMPLATE.format(user=BISLY_NATS_USER, password=BISLY_NATS_PASS)
         await self._ws.send_str(f"CONNECT {connect_msg}\r\n")
 
-        # Wait for +OK
         try:
             async with asyncio.timeout(10):
                 msg = await self._ws.receive()
@@ -273,11 +171,9 @@ class BislyNATSTransport:
         except TimeoutError:
             raise BislyNATSConnectionError("NATS CONNECT timed out")  # noqa: B904
 
-        # Set up inbox subscription
         self._inbox = _generate_inbox()
         await self._send_raw(f"SUB {self._inbox} 999\r\n")
 
-        # Re-subscribe all previously held subjects (survived disconnect)
         for subject in list(self._subscribed):
             sid = self._sid_counter
             self._sid_counter += 1
@@ -285,12 +181,9 @@ class BislyNATSTransport:
 
         self._connected = True
         self._reconnect_attempt = 0
-        self._last_ping = time.monotonic()
 
-        # Start receive loop
         self._receive_task = asyncio.ensure_future(self._receive_loop())
 
-        # Fire reconnect callbacks (e.g., client re-auth, re-register broadcast)
         for cb in self._reconnect_callbacks:
             try:
                 await cb()
@@ -307,16 +200,10 @@ class BislyNATSTransport:
             self._receive_task.cancel()
             self._receive_task = None
 
-        if self._ping_task and not self._ping_task.done():
-            self._ping_task.cancel()
-            self._ping_task = None
-
-        # Reject all pending futures
         for future in self._pending.values():
             if not future.done():
                 future.set_exception(BislyNATSConnectionError("Connection closed"))
         self._pending.clear()
-
         self._subscribed.clear()
 
         if self._ws and not self._ws.closed:
@@ -330,7 +217,6 @@ class BislyNATSTransport:
 
     async def _receive_loop(self) -> None:
         """Background task that processes incoming WebSocket messages."""
-        # Buffer for partial NATS frames that span WebSocket receives
         leftover: str = ""
         while self._connected and self._ws and not self._ws.closed:
             try:
@@ -342,7 +228,6 @@ class BislyNATSTransport:
                 break
 
             if msg.type in (WSMsgType.TEXT, WSMsgType.BINARY):
-                self._last_ping = time.monotonic()
                 raw = msg.data.decode("utf-8") if isinstance(msg.data, bytes) else msg.data
                 LOGGER.debug("NATS raw frame (type=%s): %.200s", msg.type.name, raw)
                 leftover = await self._handle_text(leftover + raw)
@@ -350,15 +235,10 @@ class BislyNATSTransport:
                 LOGGER.warning("NATS WebSocket closed: type=%s", msg.type)
                 break
 
-        # Connection lost - attempt reconnection
         await self._handle_disconnect()
 
     async def _handle_text(self, data: str) -> str:
-        """Handle incoming NATS text data, possibly spanning multiple frames.
-
-        Returns any leftover data that hasn't been fully received yet
-        (partial MSG frame where the payload hasn't all arrived).
-        """
+        """Handle incoming NATS text data, possibly spanning multiple frames."""
         while data:
             if data.startswith("PING\r\n"):
                 await self._send_raw("PONG\r\n")
@@ -372,7 +252,6 @@ class BislyNATSTransport:
                 continue
 
             if data.startswith("MSG "):
-                # Parse MSG header: MSG <subject> <sid> [reply-to] <size>\r\n
                 header_end = data.index("\r\n") if "\r\n" in data else -1
                 if header_end == -1:
                     return data
@@ -389,13 +268,13 @@ class BislyNATSTransport:
                     LOGGER.debug("Bad MSG size in header: %s", parts[-1])
                     return ""
 
-                data = data[header_end + 2 :]  # Skip header + \r\n
+                data = data[header_end + 2 :]
 
                 if len(data) < payload_size + 2:
-                    return header + "\r\n" + data  # Partial payload
+                    return header + "\r\n" + data
 
                 payload_str = data[:payload_size]
-                data = data[payload_size + 2 :]  # Skip payload + \r\n
+                data = data[payload_size + 2 :]
 
                 payload = self._parse_json(payload_str)
                 if payload is not None:
@@ -408,7 +287,6 @@ class BislyNATSTransport:
                         await self._dispatch_broadcast(payload)
                 continue
 
-            # Not a protocol frame — try bare JSON
             if data[0] == "{":
                 payload = self._parse_json_lines(data)
                 if payload is not None:
@@ -422,7 +300,6 @@ class BislyNATSTransport:
                     break
                 break
 
-            # Unknown leading character — skip
             data = data[1:]
 
         return ""
@@ -436,12 +313,7 @@ class BislyNATSTransport:
             return None
 
     def _parse_json_lines(self, data: str) -> dict[str, Any] | None:
-        r"""
-        Try to extract a JSON object from a raw NATS text message.
-
-        The app's decodeNATSMessage splits by \r\n and looks for lines
-        starting with '{'.
-        """
+        """Extract a JSON object from raw NATS text lines."""
         for line in data.split("\r\n"):
             stripped = line.strip()
             if stripped.startswith("{"):
@@ -465,7 +337,6 @@ class BislyNATSTransport:
         """Handle unexpected disconnection with reconnection logic."""
         LOGGER.warning("NATS connection lost")
 
-        # Clear state — preserve _subscribed so reconnect can re-subscribe
         for future in self._pending.values():
             if not future.done():
                 future.set_exception(BislyNATSConnectionError("Connection lost"))
@@ -478,13 +349,8 @@ class BislyNATSTransport:
         if not self._should_reconnect:
             return
 
-        # Reconnect with exponential back-off
         while self._should_reconnect and self._reconnect_attempt < _MAX_RECONNECT_ATTEMPTS:
-            delay = min(
-                _RECONNECT_BASE_DELAY * (2**self._reconnect_attempt),
-                _RECONNECT_MAX_DELAY,
-            )
-            # Add jitter: delay * (1 ± 0.5)
+            delay = min(_RECONNECT_BASE_DELAY * (2**self._reconnect_attempt), _RECONNECT_MAX_DELAY)
             jittered = delay * (0.5 + random.random())
             self._reconnect_attempt += 1
 

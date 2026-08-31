@@ -1,0 +1,13 @@
+logLevel: info
+readTimeout: 30s
+writeTimeout: 30s
+rtsp: true
+rtspAddress: :{{RTSP_PORT}}
+rtspTransports: [tcp]
+pathDefaults:
+  runOnDemand: /opt/start_camera.sh $MTX_PATH
+  runOnUnDemand: /opt/stop_camera.sh $MTX_PATH
+  runOnDemandStartTimeout: 60s
+  runOnDemandCloseAfter: 10s
+paths:
+  all_others:

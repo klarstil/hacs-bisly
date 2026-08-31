@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
     from .api import BislyApiClient
     from .coordinator import BislyDataUpdateCoordinator
+    from .intercom import BislyIntercomManager
 
 
 type BislyConfigEntry = ConfigEntry[BislyData]
@@ -35,3 +36,4 @@ class BislyData:
     client: BislyApiClient
     coordinator: BislyDataUpdateCoordinator
     integration: Integration
+    intercom: BislyIntercomManager

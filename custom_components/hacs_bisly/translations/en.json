@@ -66,6 +66,18 @@
     },
     "number_set_failed": {
       "message": "Failed to set the target value."
+    },
+    "door_lock_failed": {
+      "message": "Failed to lock the door."
+    },
+    "door_unlock_failed": {
+      "message": "Failed to unlock the door."
+    },
+    "door_open_failed": {
+      "message": "Failed to open the door."
+    },
+    "intercom_hangup_failed": {
+      "message": "Failed to hang up the intercom call."
     }
   },
   "entity": {
@@ -89,6 +101,17 @@
       },
       "filter_replacement": {
         "name": "Filter Replacement Needed"
+      },
+      "intercom_ringing": {
+        "name": "Intercom Ringing"
+      },
+      "intercom_doorbell": {
+        "name": "Intercom Doorbell"
+      }
+    },
+    "lock": {
+      "bisly_door": {
+        "name": "Bisly Door"
       }
     },
     "switch": {
@@ -118,6 +141,12 @@
     "button": {
       "reset_filter": {
         "name": "Reset Filter Timer"
+      },
+      "intercom_hangup": {
+        "name": "Hang Up Intercom"
+      },
+      "door_open": {
+        "name": "Open Door"
       }
     },
     "fan": {

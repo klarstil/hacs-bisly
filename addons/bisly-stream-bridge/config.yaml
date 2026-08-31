@@ -1,0 +1,37 @@
+{
+  "name": "Bisly Stream Bridge",
+  "version": "0.1.0",
+  "slug": "bisly_stream_bridge",
+  "description": "Bridges Bisly WebRTC cameras to RTSP for HomeKit, Scrypted and generic camera consumers.",
+  "arch": ["aarch64", "amd64", "armhf", "armv7"],
+  "url": "https://github.com/klarstil/hacs-bisly",
+  "startup": "application",
+  "boot": "auto",
+  "init": false,
+  "host_network": true,
+  "ingress": false,
+  "panel_icon": "mdi:video-input-component",
+  "hassio_api": false,
+  "homeassistant_api": false,
+  "protected": false,
+  "apparmor": false,
+  "map": [],
+  "options": {
+    "bisly_username": "",
+    "bisly_password": "",
+    "rtsp_port": 8554,
+    "video_width": 1280,
+    "video_fps": 15,
+    "ffmpeg_cpu_preset": "veryfast",
+    "log_level": "INFO"
+  },
+  "schema": {
+    "bisly_username": "str",
+    "bisly_password": "password",
+    "rtsp_port": "int(1,65535)",
+    "video_width": "int(320,3840)",
+    "video_fps": "int(1,30)",
+    "ffmpeg_cpu_preset": "list(ultrafast|superfast|veryfast|faster|fast|medium)",
+    "log_level": "list(DEBUG|INFO|WARNING|ERROR)"
+  }
+}

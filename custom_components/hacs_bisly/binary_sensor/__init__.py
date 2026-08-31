@@ -8,6 +8,7 @@ from custom_components.hacs_bisly.const import PARALLEL_UPDATES as PARALLEL_UPDA
 from homeassistant.components.binary_sensor import BinarySensorEntityDescription
 
 from .connectivity import ENTITY_DESCRIPTIONS as CONNECTIVITY_DESCRIPTIONS, BislyConnectivitySensor
+from .intercom import BislyDoorbellSensor, BislyIntercomRingingSensor
 
 if TYPE_CHECKING:
     from custom_components.hacs_bisly.data import BislyConfigEntry
@@ -24,12 +25,31 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the binary_sensor platform."""
+    coordinator = entry.runtime_data.coordinator
+
     connectivity_entities = [
         BislyConnectivitySensor(
-            coordinator=entry.runtime_data.coordinator,
+            coordinator=coordinator,
             entity_description=entity_description,
         )
         for entity_description in CONNECTIVITY_DESCRIPTIONS
     ]
 
-    async_add_entities(connectivity_entities)
+    intercom_entities = [
+        BislyIntercomRingingSensor(
+            coordinator=coordinator,
+            entity_description=BinarySensorEntityDescription(
+                key="intercom_ringing",
+                translation_key="intercom_ringing",
+            ),
+        ),
+        BislyDoorbellSensor(
+            coordinator=coordinator,
+            entity_description=BinarySensorEntityDescription(
+                key="intercom_doorbell",
+                translation_key="intercom_doorbell",
+            ),
+        ),
+    ]
+
+    async_add_entities(connectivity_entities + intercom_entities)

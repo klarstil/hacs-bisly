@@ -115,6 +115,9 @@ recorder:
 logger:
   default: info
   logs:
+    # Temporary: STUN-level WebRTC stream debugging
+    aioice: debug
+    aiortc: debug
     # Reduce noise from chatty components
     homeassistant.components.recorder: warning
     homeassistant.components.recorder.util: warning

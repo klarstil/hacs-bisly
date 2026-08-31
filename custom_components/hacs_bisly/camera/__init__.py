@@ -24,7 +24,7 @@ from custom_components.hacs_bisly.const import (
     WEBRTC_TURN_USERNAME,
 )
 from homeassistant.components.camera import Camera, CameraEntityDescription, CameraEntityFeature
-from homeassistant.components.camera.webrtc import WebRTCAnswer, WebRTCCandidate, WebRTCError, WebRTCSendMessage
+from homeassistant.components.camera.webrtc import WebRTCAnswer, WebRTCError, WebRTCSendMessage
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 
@@ -109,11 +109,12 @@ def _parse_ice(s: str, mid: str, idx: int) -> RTCIceCandidate:
 
 
 class _BislyWebRTCSession:
-    def __init__(self, sid: str, cid: str, cli: Any, send: WebRTCSendMessage) -> None:
+    def __init__(self, sid: str, cid: str, cli: Any, send: WebRTCSendMessage, intercom: Any = None) -> None:
         self.session_id = sid
         self.camera_uuid = cid
         self.client = cli
         self.send_message = send
+        self.intercom = intercom
         self._bid: str | None = None
         self._bpc: RTCPeerConnection | None = None
         self._hpc: RTCPeerConnection | None = None
@@ -149,27 +150,20 @@ class _BislyWebRTCSession:
                 self.send_message(WebRTCError("connection_lost", "HA peer failed"))
             await self.close()
 
-        @self._hpc.on("icecandidate")
-        async def ha_ice(c: RTCIceCandidate) -> None:
-            if c.candidate and c.sdpMid is not None:
-                self.send_message(
-                    WebRTCCandidate(
-                        {
-                            "candidate": c.candidate,
-                            "sdpMid": c.sdpMid,
-                            "sdpMLineIndex": c.sdpMLineIndex or 0,
-                        }
-                    )
-                )
-
         try:
             offer = RTCSessionDescription(sdp=offer_sdp, type="offer")
             await self._hpc.setRemoteDescription(offer)
         except Exception as exc:
+            if self._closed:
+                return
             if not self._err_sent:
                 self._err_sent = True
                 self.send_message(WebRTCError("setup_failed", str(exc)))
             await self.close()
+            return
+
+        if self._closed:
+            # Session was superseded by a newer offer during setup
             return
 
         # Grab sender ref + flip to sendonly so the browser VC decoder
@@ -187,11 +181,23 @@ class _BislyWebRTCSession:
             await self._hpc.setLocalDescription(ans)
             self.send_message(WebRTCAnswer(ans.sdp))
         except Exception as exc:
+            if self._closed:
+                return
             if not self._err_sent:
                 self._err_sent = True
                 self.send_message(WebRTCError("setup_failed", str(exc)))
             await self.close()
             return
+
+        if self._closed:
+            return
+
+        # If an intercom call is ringing/active, bridge visitor audio into
+        # this session's HA-facing peer connection (the frontend opened an
+        # audio transceiver in recvonly).
+        if self.intercom is not None:
+            with contextlib.suppress(Exception):
+                await self.intercom.attach_audio(self)
 
         # -------- Bisly videoserver PC ----------
         self._bpc = RTCPeerConnection(configuration=cfg)
@@ -202,22 +208,15 @@ class _BislyWebRTCSession:
                 ha_sender.replaceTrack(track)
                 LOGGER.info("Bisly track bridged (session=%s)", self.session_id)
 
-        @self._bpc.on("icecandidate")
-        async def b_ice(c: RTCIceCandidate) -> None:
-            if c.candidate and self._bid:
-                await self.client.send_videoserver_ice(
-                    connection_id=self._bid,
-                    candidate=c.candidate,
-                    sdp_mid=c.sdpMid or "",
-                    sdp_mline_index=c.sdpMLineIndex or 0,
-                )
-
         @self._bpc.on("connectionstatechange")
         async def b_conn() -> None:
             if not self._bpc:
                 return
             LOGGER.info(
-                "Bisly peer connection state: %s (session=%s)", self._bpc.connectionState, self.session_id
+                "Bisly peer connection state: %s (session=%s, ice=%s)",
+                self._bpc.connectionState,
+                self.session_id,
+                self._bpc.iceConnectionState if hasattr(self._bpc, "iceConnectionState") else "?",
             )
             if self._closed or self._bpc.connectionState != "failed":
                 return
@@ -227,6 +226,8 @@ class _BislyWebRTCSession:
             await self.close()
 
         resp = await self.client.open_videoserver(self.camera_uuid)
+        if self._closed:
+            return
         if not resp:
             self.send_message(WebRTCError("open_failed", "No response"))
             await self.close()
@@ -241,6 +242,12 @@ class _BislyWebRTCSession:
 
         off = json.loads(base64.b64decode(b64).decode())
         bsdp = off.get("sdp", "")
+        LOGGER.info(
+            "Bisly SDP offer received (session=%s, connection_id=%s, lines=%d)",
+            self.session_id,
+            self._bid,
+            bsdp.count("\n") + 1 if bsdp else 0,
+        )
         if not bsdp:
             self.send_message(WebRTCError("open_failed", "No SDP"))
             await self.close()
@@ -249,10 +256,15 @@ class _BislyWebRTCSession:
         try:
             await self._bpc.setRemoteDescription(RTCSessionDescription(sdp=bsdp, type="offer"))
         except Exception as exc:
+            if self._closed:
+                return
             if not self._err_sent:
                 self._err_sent = True
                 self.send_message(WebRTCError("setup_failed", str(exc)))
             await self.close()
+            return
+
+        if self._closed:
             return
 
         for ice in self._pice:
@@ -264,16 +276,75 @@ class _BislyWebRTCSession:
             bans = await self._bpc.createAnswer()
             await self._bpc.setLocalDescription(bans)
         except Exception as exc:
+            if self._closed:
+                return
             if not self._err_sent:
                 self._err_sent = True
                 self.send_message(WebRTCError("setup_failed", str(exc)))
             await self.close()
             return
 
-        await self.client.answer_videoserver(
+        if self._closed:
+            return
+
+        # Wait for ICE gathering to complete so candidates are available.
+        if self._bpc.iceGatheringState != "complete":
+            gather_event = asyncio.Event()
+
+            @self._bpc.on("icegatheringstatechange")
+            def _on_gathering_done() -> None:
+                if self._bpc and self._bpc.iceGatheringState == "complete":
+                    gather_event.set()
+
+            await gather_event.wait()
+
+        if self._closed:
+            return
+
+        # aiortc never emits icecandidate events for local candidates, and
+        # localDescription.sdp is not updated after ICE gathering.  Extract
+        # candidates from the internal aioice Connection so the Bisly server
+        # knows where to send STUN bindings.
+        candidate_lines: list[str] = []
+        ice_transports = getattr(self._bpc, "_RTCPeerConnection__iceTransports", None)
+        if ice_transports:
+            for transport in ice_transports:
+                conn = getattr(transport, "_connection", None)
+                if conn is None:
+                    continue
+                for c in getattr(conn, "_local_candidates", []):
+                    cstr = (
+                        f"candidate:{c.foundation} {c.component} {c.transport}"
+                        f" {c.priority} {c.host} {c.port} typ {c.type}"
+                    )
+                    candidate_lines.append(f"a={cstr}")
+                    LOGGER.debug(
+                        "Bisly PC local candidate: %s %s:%s (session=%s)",
+                        c.type,
+                        c.host,
+                        c.port,
+                        self.session_id,
+                    )
+        if not candidate_lines:
+            LOGGER.debug(
+                "Bisly PC no local candidates extracted (session=%s, transports=%s)",
+                self.session_id,
+                bool(ice_transports),
+            )
+
+        sdp_with_candidates = bans.sdp
+        if candidate_lines:
+            sdp_with_candidates += "\r\n" + "\r\n".join(candidate_lines)
+
+        answer_sdp = base64.b64encode(json.dumps({"sdp": sdp_with_candidates, "type": bans.type}).encode()).decode()
+        LOGGER.info(
+            "Bisly SDP answer sending (session=%s, connection_id=%s, lines=%d, candidates=%d)",
+            self.session_id,
             self._bid,
-            sdp_base64=base64.b64encode(json.dumps({"sdp": bans.sdp, "type": bans.type}).encode()).decode(),
+            sdp_with_candidates.count("\n") + 1 if sdp_with_candidates else 0,
+            len(candidate_lines),
         )
+        await self.client.answer_videoserver(self._bid, sdp_base64=answer_sdp)
 
         LOGGER.info("WebRTC session established (session=%s)", self.session_id)
 
@@ -300,6 +371,9 @@ class _BislyWebRTCSession:
         if self._closed:
             return
         self._closed = True
+        if self.intercom is not None:
+            with contextlib.suppress(Exception):
+                await self.intercom.detach_audio(self)
         a, b = self._hpc, self._bpc
         self._hpc = self._bpc = None
         _ACTIVE_SESSIONS.pop(self.session_id, None)
@@ -362,7 +436,13 @@ class BislyCamera(Camera):
         for old in list(_ACTIVE_SESSIONS.values()):
             with contextlib.suppress(BaseException):
                 await old.close()
-        s = _BislyWebRTCSession(sid, self._cuid, self._cli, send)
+        s = _BislyWebRTCSession(
+            sid,
+            self._cuid,
+            self._cli,
+            send,
+            intercom=getattr(self.coordinator.config_entry.runtime_data, "intercom", None),
+        )
         _ACTIVE_SESSIONS[sid] = s
         try:
             await s.start(offer)

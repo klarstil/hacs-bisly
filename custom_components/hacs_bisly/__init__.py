@@ -38,6 +38,7 @@ from .const import (
 )
 from .coordinator import BislyDataUpdateCoordinator
 from .data import BislyData
+from .intercom import BislyIntercomManager
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -46,9 +47,11 @@ if TYPE_CHECKING:
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
+    Platform.BUTTON,
     Platform.CAMERA,
     Platform.CLIMATE,
     Platform.LIGHT,
+    Platform.LOCK,
     Platform.SENSOR,
     Platform.SWITCH,
 ]
@@ -118,11 +121,14 @@ async def async_setup_entry(
         always_update=False,
     )
 
+    intercom = BislyIntercomManager(hass, entry)
+
     # Store runtime data
     entry.runtime_data = BislyData(
         client=client,
         integration=async_get_loaded_integration(hass, entry.domain),
         coordinator=coordinator,
+        intercom=intercom,
     )
 
     # First refresh: authenticate, connect NATS, fetch initial state
@@ -134,6 +140,7 @@ async def async_setup_entry(
     # Register shutdown and reload listeners
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     entry.async_on_unload(coordinator.async_shutdown)
+    entry.async_on_unload(intercom.teardown)
 
     return True
 

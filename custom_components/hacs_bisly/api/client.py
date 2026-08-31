@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Awaitable, Callable
+import contextlib
 import json
+import time
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
 from custom_components.hacs_bisly.const import (
+    ACTION_EXEC,
     ACTION_GET,
     ACTION_SET,
     CMD_CLIMATE,
@@ -27,8 +30,18 @@ from custom_components.hacs_bisly.const import (
     CMD_LIGHT,
     CMD_RGB,
     CMD_VENTILATION,
+    COMMAND_ACTIONS,
+    COMMAND_DOORS,
+    COMMAND_FONO,
+    DOORS_ARM_AREA,
+    DOORS_DISARM_AREA,
+    FONO_GET_CALL,
+    FONO_GET_CAMERA,
+    FONO_GET_DOORS,
+    FONO_GET_ICE,
     LOGGER,
     SUBJECT_BROADCAST,
+    SUBJECT_BROADCAST_STATUS,
     SUBJECT_ROUTING,
 )
 
@@ -412,6 +425,24 @@ class BislyApiClient:
         """
         return await self._set_device(CMD_VENTILATION, device, param_override=speed)
 
+    async def set_door(self, device: dict[str, Any], state: str) -> dict[str, Any] | None:
+        """Set door state (lock/unlock).
+
+        Uses the doors command with ARM_AREA / DISARM_AREA sub-type.
+        Server identifies the door by id + address from the device dict.
+
+        Args:
+            device: The full device dict.
+            state: "0" to lock (arm), "1" to unlock (disarm).
+        """
+        sub_type = DOORS_DISARM_AREA if state == "1" else DOORS_ARM_AREA
+        return await self._set_device(
+            COMMAND_DOORS,
+            device,
+            param_override=state,
+            type=sub_type,
+        )
+
     # ------------------------------------------------------------------
     # WebRTC videoserver commands (WebRTC streaming)
     # ------------------------------------------------------------------
@@ -501,6 +532,123 @@ class BislyApiClient:
                 "param": f"CLOSE,{connection_id}",
             }
         )
+
+    # ------------------------------------------------------------------
+    # Fono (intercom) commands — matches Bisly app FonoConnector
+    # ------------------------------------------------------------------
+
+    async def fono_get_call(self) -> dict[str, Any] | None:
+        """Fetch the current intercom call state.
+
+        Reply param is either "NO_CALL" or "RING,<call_id>,<base64 SDP offer>".
+        """
+        return await self._request(
+            {
+                "command": COMMAND_FONO,
+                "action": ACTION_GET,
+                "type": FONO_GET_CALL,
+                "param": "",
+            }
+        )
+
+    async def fono_get_ice(self) -> dict[str, Any] | None:
+        """Fetch pre-buffered ICE candidates for the audio peer connection.
+
+        Reply param is a list of comma-separated strings whose 3rd field is a
+        base64-encoded JSON RTCIceCandidate object.
+        """
+        return await self._request(
+            {
+                "command": COMMAND_FONO,
+                "action": ACTION_GET,
+                "type": FONO_GET_ICE,
+                "param": "",
+            }
+        )
+
+    async def fono_get_doors(self) -> dict[str, Any] | None:
+        """Fetch the action IDs of doors linked to the active call."""
+        return await self._request(
+            {
+                "command": COMMAND_FONO,
+                "action": ACTION_GET,
+                "type": FONO_GET_DOORS,
+                "param": "",
+            }
+        )
+
+    async def fono_get_camera(self) -> dict[str, Any] | None:
+        """Fetch the camera ID of the active call."""
+        return await self._request(
+            {
+                "command": COMMAND_FONO,
+                "action": ACTION_GET,
+                "type": FONO_GET_CAMERA,
+                "param": "",
+            }
+        )
+
+    async def fono_send(self, message_type: str, call_id: str, param: str = "") -> dict[str, Any] | None:
+        """Send a fono control message (ANSWER, HANGUP, ICE_CANDIDATE, LOG).
+
+        Fire-and-forget from the protocol's perspective (action "set").
+
+        Args:
+            message_type: One of the FONO_* message types.
+            call_id: The active call ID.
+            param: The message-specific parameter string.
+        """
+        return await self._request(
+            {
+                "command": COMMAND_FONO,
+                "action": ACTION_SET,
+                "type": message_type,
+                "id": call_id,
+                "param": param,
+            }
+        )
+
+    async def exec_action(self, action_id: str) -> dict[str, Any] | None:
+        """Execute an action (used for opening the door from an active call).
+
+        Matches the Bisly app's openDoor(): action "exec" on the "actions"
+        command with the action ID from fono GET_DOORS.
+
+        Args:
+            action_id: The action ID to execute.
+        """
+        return await self._request(
+            {
+                "command": COMMAND_ACTIONS,
+                "action": ACTION_EXEC,
+                "id": action_id,
+            }
+        )
+
+    async def ack_broadcast(self, message: dict[str, Any]) -> None:
+        """Acknowledge a broadcast message (app-standard behaviour).
+
+        Publishes a fire-and-forget ack to broadcast.status.<serverID> with
+        the broadcast_id, timestamp, type, serial, and device_type. Skipped
+        for messages without a broadcast_id.
+
+        Args:
+            message: The broadcast message to acknowledge.
+        """
+        broadcast_id = message.get("broadcast_id")
+        if not broadcast_id:
+            return
+
+        payload = {
+            "broadcast_id": broadcast_id,
+            "timestamp": time.time(),
+            "broadcast_type": message.get("type", ""),
+            "serial": message.get("serial", ""),
+            "device_type": message.get("device_type", ""),
+        }
+        subject = f"{SUBJECT_BROADCAST_STATUS}.{self._server_id}"
+        with contextlib.suppress(BislyApiClientError):
+            await self._transport.publish_fire_and_forget(subject, payload)
 
     # ------------------------------------------------------------------
     # Properties

@@ -31,9 +31,30 @@ from custom_components.hacs_bisly.api import (
     BislyApiClientCommunicationError,
     BislyApiClientError,
 )
-from custom_components.hacs_bisly.const import CAMERA_REFRESH_INTERVAL_SECONDS, LOGGER
+from custom_components.hacs_bisly.const import (
+    BROADCAST_CALL_END,
+    BROADCAST_CALL_ENDED,
+    BROADCAST_CALL_ENDED_ELSEWHERE,
+    BROADCAST_DOOR_NOTIFICATION,
+    BROADCAST_DOORBELL,
+    BROADCAST_INTERCOM_CALL,
+    CAMERA_REFRESH_INTERVAL_SECONDS,
+    DEVICE_REFRESH_INTERVAL_SECONDS,
+    LOGGER,
+)
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+
+INTERCOM_BROADCAST_TYPES = frozenset(
+    {
+        BROADCAST_INTERCOM_CALL,
+        BROADCAST_CALL_ENDED,
+        BROADCAST_CALL_ENDED_ELSEWHERE,
+        BROADCAST_CALL_END,
+        BROADCAST_DOORBELL,
+        BROADCAST_DOOR_NOTIFICATION,
+    }
+)
 
 if TYPE_CHECKING:
     from custom_components.hacs_bisly.data import BislyConfigEntry
@@ -72,6 +93,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.config_entry = config_entry
         self._initial_data_ready = asyncio.Event()
         self._last_camera_refresh: float = 0.0
+        self._last_device_refresh: float = 0.0
         # Track pending device commands so broadcast acks can be routed to the
         # correct (room_id, id, sw) entry when id/address alone is ambiguous.
         # Keys are (int(id), int(address)), values are dicts with keys:
@@ -214,15 +236,25 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except BislyApiClientError as exc:
                 LOGGER.debug("get_cameras failed: %s", exc)
 
+            self._last_device_refresh = time.monotonic()
             LOGGER.debug("Initial fetch complete: %d devices across %d rooms", len(all_devices), len(rooms_list))
             self._initial_data_ready.set()
             return result
 
-        # Subsequent refreshes: lightweight re-fetch of controller_list only.
-        # Broadcasts already keep state in sync for HA-initiated changes; the
-        # 15s poll catches changes from the Bisly app or physical switches.
+        # Subsequent refreshes: the room/device list rarely changes, so it is
+        # only re-fetched once DEVICE_REFRESH_INTERVAL_SECONDS has elapsed.
+        # Broadcasts already keep state in sync for HA-initiated changes and
+        # for most Bisly-app / physical-switch changes; this poll just catches
+        # anything broadcasts might have missed.
         client = self.config_entry.runtime_data.client
-        return await self._refresh_devices(client)
+        now = time.monotonic()
+        if now - self._last_device_refresh >= DEVICE_REFRESH_INTERVAL_SECONDS:
+            result = await self._refresh_devices(client)
+            self._last_device_refresh = now
+        else:
+            result = {**(self.data or {})}
+
+        return await self._refresh_cameras(client, result)
 
     async def _refresh_devices(self, client: Any) -> dict[str, Any]:
         """Re-fetch controller_list for all known rooms to sync device state."""
@@ -259,7 +291,14 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             result = {**(self.data or {})}
 
-        # Refresh cameras only periodically — camera list rarely changes
+        return result
+
+    async def _refresh_cameras(self, client: Any, result: dict[str, Any]) -> dict[str, Any]:
+        """Refresh the camera list if CAMERA_REFRESH_INTERVAL_SECONDS has elapsed.
+
+        Cameras rarely change, so this is gated independently of the room/device
+        refresh — cameras keep their own (currently identical) refresh cadence.
+        """
         now = time.monotonic()
         if now - self._last_camera_refresh > CAMERA_REFRESH_INTERVAL_SECONDS:
             try:
@@ -361,6 +400,31 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         client = self.config_entry.runtime_data.client
         await client.set_climate(device_data, temp=temp, mode=mode)
 
+    async def async_set_door(self, device_data: dict[str, Any], state: str) -> None:
+        """Set door state (lock/unlock).
+
+        Args:
+            device_data: The full device dict from the controller_list response.
+            state: "0" to lock, "1" to unlock.
+        """
+        self._cleanup_expired_pending_commands()
+        self._register_pending_command(device_data)
+
+        client = self.config_entry.runtime_data.client
+        await client.set_door(device_data, state=state)
+
+    async def async_hangup_intercom(self) -> None:
+        """Hang up the active intercom call."""
+        await self.config_entry.runtime_data.intercom.hangup()
+
+    async def async_open_door_intercom(self, action_id: str) -> None:
+        """Execute a door-open action from the active intercom call.
+
+        Args:
+            action_id: The action ID from fono GET_DOORS.
+        """
+        await self.config_entry.runtime_data.intercom.open_door(action_id)
+
     def _register_pending_command(self, device_data: dict[str, Any]) -> None:
         """Register a pending command entry for broadcast ack routing."""
         device_id_raw = device_data.get("id")
@@ -418,6 +482,11 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Forward videoserver ICE candidates to active camera sessions
         if message.get("type") == "ice" and message.get("command") == "videoserver":
             self._handle_videoserver_ice(message)
+
+        # Forward intercom-related broadcasts to the intercom manager
+        btype = str(message.get("type", ""))
+        if btype in INTERCOM_BROADCAST_TYPES or message.get("command") == "fono":
+            await self.config_entry.runtime_data.intercom.handle_broadcast(message)
 
     def _handle_videoserver_ice(self, message: dict[str, Any]) -> None:
         """Forward videoserver ICE candidates to active WebRTC camera sessions."""
@@ -710,6 +779,7 @@ def normalize_device_lists(devices: list[dict[str, Any]]) -> dict[str, Any]:
         "curtains": curtains,
         "ventilation": ventilation_devices,
         "saunas": [],
+        "intercom": {},
     }
 
 
