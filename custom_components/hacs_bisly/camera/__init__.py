@@ -133,6 +133,12 @@ class _BislyWebRTCSession:
             RTCIceServer(urls=[u], username=WEBRTC_TURN_USERNAME, credential=WEBRTC_TURN_CREDENTIAL)
             for u in WEBRTC_TURN_SERVERS
         ]
+        # aiortc only treats a "stun:" scheme URL as a STUN source; a "turn:" URL
+        # is never used for server-reflexive gathering even against the same
+        # host. Without this, only host and TURN-relay candidates are gathered,
+        # and no reachable candidate exists at all when the relay allocation
+        # is unusable.
+        srv += [RTCIceServer(urls=[u.replace("turn:", "stun:", 1)]) for u in WEBRTC_TURN_SERVERS]
         cfg = RTCConfiguration(iceServers=srv)
 
         # -------- HA frontend PC: answer immediately ----------
