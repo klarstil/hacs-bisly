@@ -240,8 +240,28 @@ class _BislyWebRTCSession:
             await self.close()
             return
 
-        off = json.loads(base64.b64decode(b64).decode())
-        bsdp = off.get("sdp", "")
+        try:
+            raw_offer = base64.b64decode(b64, validate=True)
+        except ValueError:
+            # The videoserver replies with plain-text status messages when the
+            # stream is not ready yet (e.g. "Camera stream is not ready yet,
+            # please retry") — not base64, so report it instead of crashing.
+            self.send_message(WebRTCError("open_failed", str(b64)[:120]))
+            await self.close()
+            return
+
+        try:
+            off = json.loads(raw_offer.decode("utf-8"))
+        except UnicodeDecodeError:
+            # The videoserver can encode offers as binary strings
+            # (JavaScript atob semantics, Latin-1), not UTF-8.
+            off = json.loads(raw_offer.decode("latin-1"))
+        except json.JSONDecodeError:
+            self.send_message(WebRTCError("open_failed", "Invalid offer payload"))
+            await self.close()
+            return
+
+        bsdp = off.get("sdp", "") if isinstance(off, dict) else ""
         LOGGER.info(
             "Bisly SDP offer received (session=%s, connection_id=%s, lines=%d)",
             self.session_id,
@@ -419,8 +439,20 @@ class BislyCamera(Camera):
     def _cli(self) -> Any:
         return self.coordinator.config_entry.runtime_data.client
 
+    def _resolve_cuid(self) -> str:
+        """Resolve the camera UUID from the coordinator data.
+
+        The coordinator refreshes the camera list; use the latest UUID,
+        falling back to the value captured at entity creation.
+        """
+        for cam in (self.coordinator.data or {}).get("cameras", []):
+            if isinstance(cam, dict) and str(cam.get("id", "")) == self._cid:
+                return str(cam.get("camera_uuid") or cam.get("id") or self._cid)
+        return self._cuid
+
     async def async_camera_image(self, width=None, height=None):
-        url = CAMERA_IMAGE_URL.format(server_id=self._srv, camera_id=self._cuid)
+        cuid = self._resolve_cuid()
+        url = CAMERA_IMAGE_URL.format(server_id=self._srv, camera_id=cuid)
         url += f"?cb={math.floor(time.time() / CAMERA_IMAGE_CACHE_WINDOW)}"
         try:
             async with self._cli.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
@@ -438,7 +470,7 @@ class BislyCamera(Camera):
                 await old.close()
         s = _BislyWebRTCSession(
             sid,
-            self._cuid,
+            self._resolve_cuid(),
             self._cli,
             send,
             intercom=getattr(self.coordinator.config_entry.runtime_data, "intercom", None),

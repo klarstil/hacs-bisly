@@ -229,7 +229,15 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 cameras_resp = await client.get_cameras()
                 cameras_raw = _extract_cameras_from_response(cameras_resp)
                 if cameras_raw:
-                    _attach_camera_uuids(cameras_raw, client.handshake_config)
+                    # The UUID list is needed for CDN snapshots and the
+                    # videoserver — fetched exactly like the Bisly app does.
+                    try:
+                        uuid_resp = await client.get_camera_uuids()
+                        uuid_list = _extract_cameras_from_response(uuid_resp) or []
+                    except BislyApiClientError as exc:
+                        LOGGER.debug("get_camera_uuids failed: %s", exc)
+                        uuid_list = []
+                    _attach_camera_uuids(cameras_raw, uuid_list)
                     result["cameras"] = cameras_raw
                     LOGGER.debug("Fetched %d cameras", len(cameras_raw))
                 self._last_camera_refresh = time.monotonic()
@@ -305,6 +313,13 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 cameras_resp = await client.get_cameras()
                 cameras_raw = _extract_cameras_from_response(cameras_resp)
                 if cameras_raw:
+                    try:
+                        uuid_resp = await client.get_camera_uuids()
+                        uuid_list = _extract_cameras_from_response(uuid_resp) or []
+                    except BislyApiClientError as exc:
+                        LOGGER.debug("get_camera_uuids refresh failed: %s", exc)
+                        uuid_list = []
+                    _attach_camera_uuids(cameras_raw, uuid_list)
                     result["cameras"] = cameras_raw
                 else:
                     result["cameras"] = (self.data or {}).get("cameras", [])
@@ -637,45 +652,29 @@ def _extract_cameras_from_response(response: dict[str, Any] | None) -> list[dict
     return _extract_cameras_from_param(param)
 
 
-def _attach_camera_uuids(cameras: list[dict[str, Any]], handshake_config: str) -> None:
-    """Resolve camera UUIDs from the handshake config and attach to the camera dicts.
+def _attach_camera_uuids(cameras: list[dict[str, Any]], uuid_list: list[dict[str, Any]] | None) -> None:
+    """Attach the real camera UUIDs to the camera dicts.
 
-    The camera controller_list (type 14) returns local numeric ids (e.g. "76").
-    The CDN image endpoint requires the real UUID from the handshake config
-    (e.g. "53d29e0b-51ba-11f0-96be-0242ac120003").  We extract UUIDs from the
-    favorites section and match by position (the only reliable mapping available).
-
-    When a UUID is found, it is stored as "camera_uuid" on the camera dict.
+    The plain camera list (type 14) returns local numeric ids (e.g. "76").
+    The CDN image endpoint and the videoserver need the real UUIDs, which only
+    the type-14 param-1 query returns (alongside the same sip ids).  We match
+    by sip id — the only stable identifier shared between both lists.
     """
-    if not cameras or not handshake_config:
+    if not cameras or not uuid_list:
         return
 
-    uuids: list[str] = []
-
-    def _find(obj: Any) -> None:
-        if isinstance(obj, dict):
-            if "cameraId" in obj:
-                uuids.append(obj["cameraId"])
-            for v in obj.values():
-                _find(v)
-        elif isinstance(obj, list):
-            for item in obj:
-                _find(item)
-
-    try:
-        parsed = json.loads(handshake_config)
-        _find(parsed)
-    except json.JSONDecodeError, TypeError:
-        return
-
-    if not uuids:
-        return
-
-    # Match by position — the favorites list and the cameras list have the same
-    # natural ordering (first favorite → first camera, etc.).
-    for i, camera in enumerate(cameras):
-        if i < len(uuids):
-            camera["camera_uuid"] = uuids[i]
+    for camera in cameras:
+        sip = str(camera.get("sip", "")).strip()
+        if not sip:
+            continue
+        for entry in uuid_list:
+            if str(entry.get("sip", "")).strip() != sip:
+                continue
+            uuid = entry.get("id")
+            if uuid:
+                camera["camera_uuid"] = uuid
+                camera["video_url"] = entry.get("video_url", camera.get("video_url", ""))
+            break
 
 
 def normalize_device_lists(devices: list[dict[str, Any]]) -> dict[str, Any]:

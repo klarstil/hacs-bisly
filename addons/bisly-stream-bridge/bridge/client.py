@@ -179,6 +179,17 @@ class BislyApiClient:
             }
         )
 
+    async def get_camera_uuids(self) -> dict[str, Any] | None:
+        """Fetch the camera UUID list (type 14, param "1" — as the Bisly app does)."""
+        return await self._request(
+            {
+                "command": "controller_list",
+                "action": "get",
+                "type": CTRL_TYPE_CAMERA,
+                "param": "1",
+            }
+        )
+
     # ------------------------------------------------------------------
     # WebRTC videoserver commands
     # ------------------------------------------------------------------
@@ -268,37 +279,25 @@ def extract_cameras(response: dict[str, Any] | None) -> list[dict[str, Any]]:
     return []
 
 
-def attach_camera_uuids(cameras: list[dict[str, Any]], handshake_config: str) -> None:
-    """Resolve camera UUIDs from the handshake config and attach to camera dicts.
+def attach_camera_uuids(cameras: list[dict[str, Any]], uuid_list: list[dict[str, Any]] | None) -> None:
+    """Attach the real camera UUIDs to the camera dicts.
 
-    Ported from custom_components/hacs_bisly/coordinator/base.py::_attach_camera_uuids.
-    The controller_list returns local numeric ids, the CDN and videoserver need
-    the real UUID from the handshake config; matched by position.
+    The plain camera list (type 14) returns local numeric ids; the CDN and
+    videoserver need the real UUIDs, which only the type-14 param-1 query
+    returns.  Matched by sip id — the only stable shared identifier.
     """
-    if not cameras or not handshake_config:
+    if not cameras or not uuid_list:
         return
 
-    uuids: list[str] = []
-
-    def _find(obj: Any) -> None:
-        if isinstance(obj, dict):
-            if "cameraId" in obj:
-                uuids.append(obj["cameraId"])
-            for v in obj.values():
-                _find(v)
-        elif isinstance(obj, list):
-            for item in obj:
-                _find(item)
-
-    try:
-        parsed = json.loads(handshake_config)
-        _find(parsed)
-    except (json.JSONDecodeError, TypeError):
-        return
-
-    if not uuids:
-        return
-
-    for i, camera in enumerate(cameras):
-        if i < len(uuids):
-            camera["camera_uuid"] = uuids[i]
+    for camera in cameras:
+        sip = str(camera.get("sip", "")).strip()
+        if not sip:
+            continue
+        for entry in uuid_list:
+            if str(entry.get("sip", "")).strip() != sip:
+                continue
+            uuid = entry.get("id")
+            if uuid:
+                camera["camera_uuid"] = uuid
+                camera["video_url"] = entry.get("video_url", camera.get("video_url", ""))
+            break

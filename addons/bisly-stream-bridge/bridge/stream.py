@@ -232,8 +232,24 @@ class BislyStreamBridgeSession:
         if not self._bid or not b64:
             raise StreamBridgeError("Empty videoserver offer")
 
-        off = json.loads(base64.b64decode(b64).decode())
-        bsdp = off.get("sdp", "")
+        try:
+            raw_offer = base64.b64decode(b64, validate=True)
+        except ValueError:
+            # The videoserver replies with plain-text status messages when the
+            # stream is not ready yet (e.g. "Camera stream is not ready yet,
+            # please retry") — not base64.
+            raise StreamBridgeError(f"Videoserver: {str(b64)[:120]}") from None
+
+        try:
+            off = json.loads(raw_offer.decode("utf-8"))
+        except UnicodeDecodeError:
+            # The videoserver can encode offers as binary strings
+            # (JavaScript atob semantics, Latin-1), not UTF-8.
+            off = json.loads(raw_offer.decode("latin-1"))
+        except json.JSONDecodeError:
+            raise StreamBridgeError("Invalid offer payload") from None
+
+        bsdp = off.get("sdp", "") if isinstance(off, dict) else ""
         LOGGER.info(
             "Bisly SDP offer received (camera=%s, connection_id=%s, lines=%d)",
             self.camera_uuid,

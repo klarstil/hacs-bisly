@@ -323,6 +323,21 @@ class BislyApiClient:
             }
         )
 
+    async def get_camera_uuids(self) -> dict[str, Any] | None:
+        """Fetch the camera UUID list (type 14, param "1" — as the Bisly app does).
+
+        Unlike the plain camera list, this returns the real UUIDs (and sip ids)
+        that the CDN image endpoint and the videoserver expect.
+        """
+        return await self._request(
+            {
+                "command": CMD_CONTROLLER_LIST,
+                "action": ACTION_GET,
+                "type": "14",
+                "param": "1",
+            }
+        )
+
     # ------------------------------------------------------------------
     # Device control — mirroring the working script's _set_device pattern
     # ------------------------------------------------------------------

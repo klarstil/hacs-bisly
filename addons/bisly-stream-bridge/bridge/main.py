@@ -68,7 +68,12 @@ class BridgeApp:
 
         cameras_resp = await self.client.get_cameras()
         cameras = extract_cameras(cameras_resp)
-        attach_camera_uuids(cameras, self.client.handshake_config)
+        try:
+            uuid_resp = await self.client.get_camera_uuids()
+        except BislyApiClientError as exc:
+            LOGGER.warning("get_camera_uuids failed: %s", exc)
+            uuid_resp = None
+        attach_camera_uuids(cameras, extract_cameras(uuid_resp))
 
         rtsp_base = f"rtsp://localhost:{self.rtsp_port}"
         for camera in cameras:
