@@ -313,6 +313,23 @@ class _BislyWebRTCSession:
         if self._closed:
             return
 
+        # Send the plain answer immediately, before ICE gathering starts —
+        # matching the Bisly app's own signaling flow, which trickles
+        # candidates separately rather than embedding them in the SDP.
+        answer_sdp = base64.b64encode(json.dumps({"sdp": bans.sdp, "type": bans.type}).encode()).decode()
+        LOGGER.info(
+            "Bisly SDP answer sending (session=%s, connection_id=%s, lines=%d)",
+            self.session_id,
+            self._bid,
+            bans.sdp.count("\n") + 1 if bans.sdp else 0,
+        )
+        await self.client.answer_videoserver(self._bid, sdp_base64=answer_sdp)
+
+        LOGGER.info("WebRTC session established (session=%s)", self.session_id)
+
+        if self._closed:
+            return
+
         # Wait for ICE gathering to complete so candidates are available.
         if self._bpc.iceGatheringState != "complete":
             gather_event = asyncio.Event()
@@ -327,52 +344,37 @@ class _BislyWebRTCSession:
         if self._closed:
             return
 
-        # aiortc never emits icecandidate events for local candidates, and
-        # localDescription.sdp is not updated after ICE gathering.  Extract
-        # candidates from the internal aioice Connection so the Bisly server
-        # knows where to send STUN bindings.
-        candidate_lines: list[str] = []
-        ice_transports = getattr(self._bpc, "_RTCPeerConnection__iceTransports", None)
-        if ice_transports:
-            for transport in ice_transports:
-                conn = getattr(transport, "_connection", None)
-                if conn is None:
-                    continue
-                for c in getattr(conn, "_local_candidates", []):
-                    cstr = (
-                        f"candidate:{c.foundation} {c.component} {c.transport}"
-                        f" {c.priority} {c.host} {c.port} typ {c.type}"
-                    )
-                    candidate_lines.append(f"a={cstr}")
-                    LOGGER.debug(
-                        "Bisly PC local candidate: %s %s:%s (session=%s)",
-                        c.type,
-                        c.host,
-                        c.port,
-                        self.session_id,
-                    )
-        if not candidate_lines:
-            LOGGER.debug(
-                "Bisly PC no local candidates extracted (session=%s, transports=%s)",
-                self.session_id,
-                bool(ice_transports),
-            )
-
-        sdp_with_candidates = bans.sdp
-        if candidate_lines:
-            sdp_with_candidates += "\r\n" + "\r\n".join(candidate_lines)
-
-        answer_sdp = base64.b64encode(json.dumps({"sdp": sdp_with_candidates, "type": bans.type}).encode()).decode()
-        LOGGER.info(
-            "Bisly SDP answer sending (session=%s, connection_id=%s, lines=%d, candidates=%d)",
-            self.session_id,
-            self._bid,
-            sdp_with_candidates.count("\n") + 1 if sdp_with_candidates else 0,
-            len(candidate_lines),
-        )
-        await self.client.answer_videoserver(self._bid, sdp_base64=answer_sdp)
-
-        LOGGER.info("WebRTC session established (session=%s)", self.session_id)
+        # aiortc never emits icecandidate events for local candidates, so
+        # extract them from the internal aioice Connection of each
+        # transceiver's ICE transport and trickle them to the Bisly
+        # videoserver individually — the same protocol its own app uses —
+        # instead of splicing them into the SDP text.
+        sent = 0
+        for idx, transceiver in enumerate(self._bpc.getTransceivers()):
+            ice_transport = getattr(getattr(transceiver.receiver, "transport", None), "transport", None)
+            conn = getattr(ice_transport, "_connection", None)
+            if conn is None:
+                continue
+            sdp_mid = transceiver.mid or str(idx)
+            for c in getattr(conn, "_local_candidates", []):
+                LOGGER.debug(
+                    "Bisly PC local candidate: %s %s:%s (session=%s)",
+                    c.type,
+                    c.host,
+                    c.port,
+                    self.session_id,
+                )
+                if self._closed:
+                    return
+                await self.client.send_videoserver_ice(
+                    self._bid,
+                    candidate=f"candidate:{c.to_sdp()}",
+                    sdp_mid=sdp_mid,
+                    sdp_mline_index=idx,
+                )
+                sent += 1
+        if not sent:
+            LOGGER.debug("Bisly PC no local candidates extracted (session=%s)", self.session_id)
 
     # ----------------------------------------------------------------
 
