@@ -473,6 +473,7 @@ class BislyStreamBridge:
         self.options = options
         self.session: BislyStreamBridgeSession | None = None
         self.camera_uuid = camera.get("camera_uuid") or str(camera.get("id", ""))
+        self.camera_id = str(camera.get("id") or camera.get("camera_id") or "")
 
     @staticmethod
     def _slugify(name: str) -> str:

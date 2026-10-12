@@ -24,6 +24,21 @@ Bisly Cloud ──(NATS/WebRTC)──> Bridge add-on ──(RTSP)──> Generic
 4. Under **Configuration**, enter your Bisly account username and password.
 5. Start the add-on and check the log for `Authenticated` and the list of registered cameras.
 
+## Home Assistant integration (automatic)
+
+The `hacs_bisly` integration finds this app on its own — no configuration needed:
+
+1. On startup the app registers its RTSP endpoint (host, port and per-camera
+   slugs) with the Supervisor.
+2. Home Assistant stores that endpoint in its own *Bisly Stream Bridge* entry and
+   the `hacs_bisly` camera entities expose it through `stream_source()`.
+
+This is the live-stream path on Home Assistant versions where the in-process
+aiortc stack cannot be installed. Playback uses Home Assistant's go2rtc/HLS
+pipeline; add the `go2rtc` integration for low-latency WebRTC, otherwise Home
+Assistant serves HLS. When the app is not running, the cameras keep working for
+snapshots and simply report no live stream.
+
 ## Usage
 
 After startup the add-on registers every discovered camera:
@@ -74,4 +89,6 @@ Install Scrypted, add the **RTSP** plugin, and use `rtsp://<ha-host>:8554/garden
 
 - The stream still flows through the Bisly cloud (TURN servers); the add-on only makes it locally consumable. Expect a few seconds of latency.
 - Transcoding costs CPU. On Raspberry Pi class hardware, lower `video_width`/`video_fps` or use `ultrafast`.
-- The aiortc ICE-candidate extraction relies on aiortc internals; `aiortc==1.9.0` is pinned to match the integration.
+- The aiortc ICE-candidate extraction relies on aiortc internals; the app pins
+  `aiortc==1.15.0` with `av==17.0.1` inside its own container, independent of
+  Home Assistant's own (conflicting) PyAV pin.

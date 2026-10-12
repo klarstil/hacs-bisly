@@ -34,6 +34,16 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper(), logging.INFO), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
+def _unwrap(payload: Any) -> dict[str, Any]:
+    """Return the ``data`` object of a Supervisor API response, if wrapped."""
+    if isinstance(payload, dict):
+        data = payload.get("data")
+        if isinstance(data, dict):
+            return data
+        return payload
+    return {}
+
+
 class BridgeApp:
     """Manages authentication, camera discovery and per-camera bridges."""
 
@@ -52,6 +62,8 @@ class BridgeApp:
         self.bridges: dict[str, BislyStreamBridge] = {}
         self.connection_lock = asyncio.Lock()
         self._ice_buffer: dict[str, list[dict[str, Any]]] = {}
+        self._supervisor_token = os.environ.get("SUPERVISOR_TOKEN", "")
+        self._discovery_uuid: str | None = None
 
     # ------------------------------------------------------------------
 
@@ -87,8 +99,11 @@ class BridgeApp:
         if not self.bridges:
             LOGGER.warning("No cameras with UUIDs discovered")
 
+        await self._announce_discovery()
+
     async def shutdown(self) -> None:
         """Stop all bridges and close the connection."""
+        await self._withdraw_discovery()
         for bridge in self.bridges.values():
             with contextlib.suppress(Exception):
                 await bridge.stop()
@@ -200,6 +215,71 @@ class BridgeApp:
         await self.client.authenticate()
         await self.client.connect(self._on_broadcast)
 
+    # ------------------------------------------------------------------
+    # Supervisor discovery
+    # ------------------------------------------------------------------
+
+    async def _announce_discovery(self) -> None:
+        """Register the RTSP endpoint with Home Assistant via Supervisor discovery."""
+        if not self._supervisor_token or self.session is None:
+            LOGGER.debug("No SUPERVISOR_TOKEN — skipping discovery (not running as an app)")
+            return
+
+        host = await self._resolve_hostname()
+        if not host:
+            LOGGER.warning("Could not resolve own hostname — skipping discovery")
+            return
+
+        config: dict[str, Any] = {
+            "host": host,
+            "port": self.rtsp_port,
+            "cameras": [{"id": bridge.camera_id, "slug": bridge.slug} for bridge in self.bridges.values()],
+        }
+        try:
+            async with self.session.post(
+                f"{SUPERVISOR_URL}/discovery",
+                json={"service": DISCOVERY_SERVICE, "config": config},
+                headers={"Authorization": f"Bearer {self._supervisor_token}"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                payload = await resp.json()
+        except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
+            LOGGER.warning("Supervisor discovery failed: %s", exc)
+            return
+
+        uuid = _unwrap(payload).get("uuid")
+        if uuid:
+            self._discovery_uuid = str(uuid)
+            LOGGER.info("Registered with Home Assistant (uuid=%s, host=%s)", self._discovery_uuid, host)
+
+    async def _withdraw_discovery(self) -> None:
+        """Remove the discovery entry when the app stops."""
+        uuid = self._discovery_uuid
+        self._discovery_uuid = None
+        if not uuid or not self._supervisor_token or self.session is None:
+            return
+        with contextlib.suppress(aiohttp.ClientError, TimeoutError, ValueError):
+            async with self.session.delete(
+                f"{SUPERVISOR_URL}/discovery/{uuid}",
+                headers={"Authorization": f"Bearer {self._supervisor_token}"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ):
+                pass
+
+    async def _resolve_hostname(self) -> str:
+        """Return the DNS name Home Assistant Core can use to reach this app."""
+        if self._supervisor_token and self.session is not None:
+            with contextlib.suppress(aiohttp.ClientError, TimeoutError, ValueError):
+                async with self.session.get(
+                    f"{SUPERVISOR_URL}/addons/self/info",
+                    headers={"Authorization": f"Bearer {self._supervisor_token}"},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    payload = await resp.json()
+                hostname = _unwrap(payload).get("hostname")
+                if hostname:
+                    return str(hostname)
+        return socket.gethostname().replace("_", "-")
 
     def build_web_app(self) -> web.Application:
         """Build the aiohttp web application with the control endpoints."""

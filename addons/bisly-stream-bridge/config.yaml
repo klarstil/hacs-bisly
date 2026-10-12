@@ -8,7 +8,9 @@
   "startup": "application",
   "boot": "auto",
   "init": false,
-  "host_network": true,
+  "ports": {
+    "8554/tcp": 8554
+  },
   "ingress": false,
   "panel_icon": "mdi:video-input-component",
   "hassio_api": false,

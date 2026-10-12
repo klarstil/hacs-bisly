@@ -34,3 +34,7 @@ WEBRTC_TURN_SERVERS: list[str] = [
 ]
 WEBRTC_TURN_USERNAME = "test"
 WEBRTC_TURN_CREDENTIAL = "test"
+
+# Supervisor discovery
+SUPERVISOR_URL = "http://supervisor"
+DISCOVERY_SERVICE = "hacs_bisly"
