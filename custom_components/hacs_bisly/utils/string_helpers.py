@@ -19,6 +19,25 @@ def slugify_name(name: str) -> str:
     return slug.strip("_")
 
 
+def camera_slug(name: str) -> str:
+    """
+    Convert a camera label into the RTSP path segment used by the stream bridge.
+
+    Mirrors ``BislyStreamBridge._slugify`` in the ``bisly-stream-bridge`` app so
+    the integration derives the same path mediamtx serves: umlauts are
+    transliterated and every non-ASCII/non-alphanumeric character becomes ``_``.
+
+    Example:
+        >>> camera_slug("Garten-Tür")
+        'garten-tuer'
+    """
+    for char, replacement in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):  # codespell:ignore ue
+        name = name.replace(char, replacement)
+        name = name.replace(char.upper(), replacement.capitalize())
+    cleaned = "".join(c if c.isascii() and (c.isalnum() or c in ("-", "_")) else "_" for c in name.lower())
+    return cleaned.strip("_") or "camera"
+
+
 def truncate_string(text: str, max_length: int = 255, suffix: str = "...") -> str:
     """
     Truncate a string to a maximum length.

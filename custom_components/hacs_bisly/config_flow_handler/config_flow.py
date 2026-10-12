@@ -14,9 +14,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from custom_components.hacs_bisly.const import CONF_AUTH_HASH, CONF_SERVER_ID, CONF_USER_ID, DOMAIN, LOGGER
+from custom_components.hacs_bisly.const import (
+    CONF_AUTH_HASH,
+    CONF_BRIDGE_CAMERAS,
+    CONF_BRIDGE_HOST,
+    CONF_BRIDGE_PORT,
+    CONF_ENTRY_TYPE,
+    CONF_SERVER_ID,
+    CONF_USER_ID,
+    DEFAULT_BRIDGE_RTSP_PORT,
+    DOMAIN,
+    ENTRY_TYPE_STREAM_BRIDGE,
+    LOGGER,
+)
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 from homeassistant.loader import async_get_loaded_integration
 
 from .schemas import get_reauth_schema, get_reconfigure_schema, get_user_schema
@@ -211,6 +224,36 @@ class BislyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "username": entry.data.get(CONF_USERNAME, ""),
+            },
+        )
+
+    async def async_step_hassio(
+        self,
+        discovery_info: HassioServiceInfo,
+    ) -> config_entries.ConfigFlowResult:
+        """
+        Handle discovery from the bisly-stream-bridge app.
+
+        The app terminates the Bisly WebRTC leg and republishes it as RTSP. Its
+        endpoint is stored in a standalone config entry so the camera entities
+        can stream through Home Assistant's go2rtc/HLS pipeline when aiortc is
+        unavailable in-process.
+        """
+        await self.async_set_unique_id(discovery_info.uuid)
+        self._abort_if_unique_id_configured()
+
+        bridge_cameras = {
+            str(cam["id"]): str(cam["slug"])
+            for cam in discovery_info.config.get(CONF_BRIDGE_CAMERAS, [])
+            if isinstance(cam, dict) and cam.get("id") and cam.get("slug")
+        }
+        return self.async_create_entry(
+            title=f"Bisly Stream Bridge ({discovery_info.name})",
+            data={
+                CONF_ENTRY_TYPE: ENTRY_TYPE_STREAM_BRIDGE,
+                CONF_BRIDGE_HOST: str(discovery_info.config.get(CONF_BRIDGE_HOST, "")),
+                CONF_BRIDGE_PORT: int(discovery_info.config.get(CONF_BRIDGE_PORT, DEFAULT_BRIDGE_RTSP_PORT)),
+                CONF_BRIDGE_CAMERAS: bridge_cameras,
             },
         )
 

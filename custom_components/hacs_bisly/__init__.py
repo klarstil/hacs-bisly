@@ -28,8 +28,14 @@ from homeassistant.loader import async_get_loaded_integration
 
 from .api import BislyApiClient
 from .const import (
+    CONF_BRIDGE_CAMERAS,
+    CONF_BRIDGE_HOST,
+    CONF_BRIDGE_PORT,
+    CONF_ENTRY_TYPE,
+    DEFAULT_BRIDGE_RTSP_PORT,
     DEFAULT_UPDATE_INTERVAL_SECONDS,
     DOMAIN,
+    ENTRY_TYPE_STREAM_BRIDGE,
     LOGGER,
     MIN_UPDATE_INTERVAL_SECONDS,
     WEBRTC_TURN_CREDENTIAL,
@@ -37,7 +43,7 @@ from .const import (
     WEBRTC_TURN_USERNAME,
 )
 from .coordinator import BislyDataUpdateCoordinator
-from .data import BislyData
+from .data import DATA_STREAM_BRIDGE, BislyData, StreamBridgeInfo
 from .intercom import BislyIntercomManager
 
 if TYPE_CHECKING:
@@ -96,6 +102,23 @@ async def async_setup_entry(
     Returns:
         True if setup was successful.
     """
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_STREAM_BRIDGE:
+        # Standalone entry published by the bisly-stream-bridge app through
+        # Supervisor discovery. It carries only the RTSP endpoint so the
+        # camera entities can fall back to Home Assistant's stream pipeline.
+        hass.data[DATA_STREAM_BRIDGE] = StreamBridgeInfo(
+            host=str(entry.data.get(CONF_BRIDGE_HOST, "")),
+            port=int(entry.data.get(CONF_BRIDGE_PORT, DEFAULT_BRIDGE_RTSP_PORT)),
+            cameras={str(k): str(v) for k, v in (entry.data.get(CONF_BRIDGE_CAMERAS) or {}).items()},
+        )
+
+        def _remove_stream_bridge() -> None:
+            hass.data.pop(DATA_STREAM_BRIDGE, None)
+
+        entry.async_on_unload(_remove_stream_bridge)
+        LOGGER.debug("Stream bridge registered (host=%s)", entry.data.get(CONF_BRIDGE_HOST))
+        return True
+
     # Initialize API client (username/password from config flow)
     client = BislyApiClient(
         username=entry.data[CONF_USERNAME],
@@ -150,6 +173,10 @@ async def async_unload_entry(
     entry: BislyConfigEntry,
 ) -> bool:
     """Unload a config entry."""
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_STREAM_BRIDGE:
+        hass.data.pop(DATA_STREAM_BRIDGE, None)
+        return True
+
     await entry.runtime_data.client.disconnect()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 

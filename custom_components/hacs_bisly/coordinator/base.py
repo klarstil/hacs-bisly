@@ -506,7 +506,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _handle_videoserver_ice(self, message: dict[str, Any]) -> None:
         """Forward videoserver ICE candidates to active WebRTC camera sessions."""
         # Import here to avoid circular
-        from custom_components.hacs_bisly.camera import _ACTIVE_SESSIONS  # noqa: PLC0415
+        from custom_components.hacs_bisly.camera.webrtc import _ACTIVE_SESSIONS  # noqa: PLC0415
 
         connection_id = str(message.get("id", ""))
         if not connection_id:

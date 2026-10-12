@@ -157,3 +157,13 @@ DEVICE_REFRESH_INTERVAL_SECONDS = 3600  # 1 hour — room/device list rarely cha
 # Bisly device info
 MANUFACTURER = "Bisly"
 MODEL = "Bisly Smart Home"
+
+# Stream bridge app (bisly-stream-bridge) — discovered via Supervisor add-on discovery.
+# The bridge terminates the Bisly WebRTC leg and republishes it as RTSP; the
+# camera consumes that RTSP through Home Assistant's go2rtc/HLS pipeline.
+CONF_ENTRY_TYPE = "entry_type"
+ENTRY_TYPE_STREAM_BRIDGE = "stream_bridge"
+CONF_BRIDGE_HOST = "host"
+CONF_BRIDGE_PORT = "port"
+CONF_BRIDGE_CAMERAS = "cameras"
+DEFAULT_BRIDGE_RTSP_PORT = 8554
