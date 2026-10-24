@@ -5,3 +5,4 @@
 - Pin aiortc==1.15.0 alongside av==17.0.1 in requirements.txt to match the verified-working Home Assistant camera stack; this combination installs/imports cleanly with all aiortc internals present. Confidence: 0.80
 - In the add-on config.yaml, set `protected: false` and `apparmor: false` to allow raw sockets and UDP/ICE/TURN network paths. Confidence: 0.75
 - The Protection Mode toggle in the HA add-on UI (Info tab) overrides the manifest/config `protected: false`; it must also be switched OFF in the UI, otherwise UDP sockets are blocked and ICE/STUN checks hang in IN_PROGRESS. Confidence: 0.70
+- Floor heating "on" must be derived from the type-28 zone's `floor_heating_active == 1` field (as the Bisly app does), NOT from `air_climate_status` which reflects the air-conditioning unit (AIR_CLIMATE_OFF=0, COOLING=1, HEATING=2, AUTO=3). Confidence: 0.85
