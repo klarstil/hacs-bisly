@@ -411,15 +411,23 @@ class BislyApiClient:
     ) -> dict[str, Any] | None:
         """Set climate target temperature or mode.
 
+        Climate zones (thermostats, floor heating) have no device id of their
+        own. The Bisly app addresses them by room id instead, so fall back to
+        the zone's room_id when no id is present — otherwise the server cannot
+        route the command and silently ignores it.
+
         Args:
             device: The full device dict.
             temp: Target temperature to set (optional).
             mode: Climate mode to set (optional).
         """
+        payload_device = device
+        if device.get("id") is None and device.get("room_id") is not None:
+            payload_device = {**device, "id": str(device["room_id"])}
         if temp is not None:
-            return await self._set_device(CMD_CLIMATE, device, param_override=str(temp))
+            return await self._set_device(CMD_CLIMATE, payload_device, param_override=str(temp))
         if mode is not None:
-            return await self._set_device(CMD_CLIMATE, device, param_override=mode)
+            return await self._set_device(CMD_CLIMATE, payload_device, param_override=mode)
         return None
 
     async def set_curtain(self, device: dict[str, Any], position: str = "0") -> dict[str, Any] | None:
