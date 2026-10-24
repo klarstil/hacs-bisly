@@ -747,18 +747,26 @@ def normalize_device_lists(devices: list[dict[str, Any]]) -> dict[str, Any]:
         elif device_type == "11":  # video door
             doors.append(normalized)
 
-    # Cross-reference: copy air_climate_status from floor heating (type 28)
-    # to thermostat zones (type 1/2) in the same room.  The thermostat's
-    # "activated" field is just the configured mode — the actual running
-    # state lives on the sibling type 28 zone.
+    # Cross-reference: copy floor heating state from the floor heating zone
+    # (type 28) to thermostat zones (type 1/2) in the same room.
+    # floor_heating_active is the field the Bisly app uses to show
+    # "Floor heating: On" (1 = enabled). air_climate_status is the A/C unit
+    # status (0=off, 1=cooling, 2=heating, 3=auto) and stays 0 for rooms
+    # without an A/C unit, so it must not gate the floor heating state.
     floor_heating_status: dict[int, Any] = {}
     for zone in climate_zones:
         if str(zone.get("type")) == "28":
             floor_heating_status[zone["room_id"]] = zone.get("air_climate_status")
 
+    floor_heating_active: dict[int, Any] = {}
+    for zone in climate_zones:
+        if str(zone.get("type")) == "28":
+            floor_heating_active[zone["room_id"]] = zone.get("floor_heating_active")
+
     for zone in climate_zones:
         if str(zone.get("type")) in ("1", "2") and zone["room_id"] in floor_heating_status:
             zone["air_climate_status"] = floor_heating_status[zone["room_id"]]
+            zone["floor_heating_active"] = floor_heating_active.get(zone["room_id"])
 
     LOGGER.debug(
         "Normalized: %d rooms, %d lights, %d climates, %d curtains, %d ventilation, %d doors",
@@ -932,6 +940,9 @@ def parse_broadcast_message(
                 if str(zone.get("type")) == "28" and zone.get("room_id") == device_id:
                     # air_climate_status: 0=off, 1=on — broadcast sends param=["1"] or ["0"]
                     zone["air_climate_status"] = int(param) if isinstance(param, str) and param.isdigit() else 0
+                    if "floor_heating_active" in message:
+                        raw_active = message["floor_heating_active"]
+                        zone["floor_heating_active"] = int(raw_active) if str(raw_active).isdigit() else raw_active
                     found = True
                 # Thermostat broadcast: may update temperature or mode
                 elif zone.get("room_id") == device_id or zone.get("id") == device_id:
@@ -946,15 +957,19 @@ def parse_broadcast_message(
                         zone["mode"] = message["mode"]
                     found = True
             if found:
-                # Propagate air_climate_status from type 28 zones to sibling
-                # type 1/2 zones so climate entities see the real running state.
+                # Propagate air_climate_status and floor_heating_active from
+                # type 28 zones to sibling type 1/2 zones so climate entities
+                # see the real floor heating state.
                 fh_status: dict[int, Any] = {}
+                fh_active: dict[int, Any] = {}
                 for zone in climate_copy:
                     if str(zone.get("type")) == "28":
                         fh_status[zone["room_id"]] = zone.get("air_climate_status")
+                        fh_active[zone["room_id"]] = zone.get("floor_heating_active")
                 for zone in climate_copy:
                     if str(zone.get("type")) in ("1", "2") and zone["room_id"] in fh_status:
                         zone["air_climate_status"] = fh_status[zone["room_id"]]
+                        zone["floor_heating_active"] = fh_active.get(zone["room_id"])
 
                 delta["climate_zones"] = climate_copy
 

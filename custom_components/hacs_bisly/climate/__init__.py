@@ -119,22 +119,24 @@ class BislyClimate(BislyEntity, ClimateEntity):
     def hvac_mode(self) -> HVACMode:
         """Return the current HVAC mode.
 
-        The thermostat's "activated" field is the configured mode (0/1), but the
-        actual running state is air_climate_status from the sibling floor heating
-        (type 28) zone.  When the floor heating is offline, air_climate_status is 0
-        even though activated may still be "1".  Show OFF in that case.
-        When no floor heating sibling exists (air_climate_status absent), fall
-        back to the thermostat's own mode field.
+        The thermostat's "mode" field is the configured mode (activated, 0/1).
+        The floor heating sibling (type 28) reports floor_heating_active — the
+        same field the Bisly app uses to show "Floor heating: On". Use it as
+        the on/off signal for rooms with a floor heating zone.
+
+        air_climate_status is the A/C unit status (0=off, 1=cooling, 2=heating,
+        3=auto) and must not gate the HVAC mode: rooms without an A/C unit
+        always report 0.
         """
         zone = self._zone()
         mode = zone.get("mode")
         if mode != "1":
             return HVACMode.OFF
-        air_status = zone.get("air_climate_status")
-        if air_status is None:
+        floor_active = zone.get("floor_heating_active")
+        if floor_active is None:
             # No floor heating sibling — trust the thermostat's mode
             return HVACMode.HEAT
-        if air_status == 1:
+        if floor_active == 1:
             return HVACMode.HEAT
         return HVACMode.OFF
 

@@ -70,12 +70,19 @@ class BislyFloorHeatingSwitch(BislyEntity, SwitchEntity):
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if floor heating is active."""
+        """Return True if floor heating is active.
+
+        floor_heating_active is the field the Bisly app uses to show
+        "Floor heating: On" (1 = enabled). air_climate_status is the A/C
+        unit status (0=off, 1=cooling, 2=heating, 3=auto) and stays 0 for
+        rooms without an A/C unit, so it only serves as a fallback.
+        """
         zone = self._zone()
         if not zone:
             return None
-        # air_climate_status is the actual running state:
-        # 0 = off/offline, 1 = on (heating/cooling active)
+        active = zone.get("floor_heating_active")
+        if active is not None:
+            return active == 1
         return zone.get("air_climate_status") == 1
 
     async def async_turn_on(self, **_: Any) -> None:
