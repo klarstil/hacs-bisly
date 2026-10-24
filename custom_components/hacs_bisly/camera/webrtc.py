@@ -300,7 +300,9 @@ class _BislyWebRTCSession:
         # Send the plain answer immediately, before ICE gathering starts —
         # matching the Bisly app's own signaling flow, which trickles
         # candidates separately rather than embedding them in the SDP.
-        answer_sdp = base64.b64encode(json.dumps({"sdp": bisly_answer.sdp, "type": bisly_answer.type}).encode()).decode()
+        answer_sdp = base64.b64encode(
+            json.dumps({"sdp": bisly_answer.sdp, "type": bisly_answer.type}).encode()
+        ).decode()
         LOGGER.info(
             "Bisly SDP answer sending (session=%s, connection_id=%s, lines=%d)",
             self.session_id,
