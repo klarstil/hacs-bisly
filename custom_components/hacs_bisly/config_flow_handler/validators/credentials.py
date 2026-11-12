@@ -6,7 +6,7 @@ Validation functions for user credentials and authentication.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from custom_components.hacs_bisly.api import BislyApiClient
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 
-async def validate_credentials(hass: HomeAssistant, username: str, password: str) -> dict[str]:
+async def validate_credentials(hass: HomeAssistant, username: str, password: str) -> dict[str, Any]:
     """
     Validate user credentials by performing a Bisly handshake.
 

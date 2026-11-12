@@ -17,13 +17,8 @@ from custom_components.hacs_bisly.const import (
     MODEL,
 )
 from custom_components.hacs_bisly.entity.base import BislyEntity
-from homeassistant.components.light import (
-    ATTR_BRIGHTNESS,
-    ATTR_RGB_COLOR,
-    ColorMode,
-    LightEntity,
-    LightEntityDescription,
-)
+from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_RGB_COLOR, LightEntity, LightEntityDescription
+from homeassistant.components.light.const import ColorMode
 from homeassistant.helpers.device_registry import DeviceInfo
 
 if TYPE_CHECKING:
@@ -103,10 +98,15 @@ class BislyLight(BislyEntity, LightEntity):
         device_data = self._get_live_device_data()
         return str(device_data.get("param", "0")) != "0"
 
+    def _supports_color_mode(self, mode: ColorMode) -> bool:
+        """Return True if the light supports the given color mode."""
+        color_modes = self._attr_supported_color_modes
+        return color_modes is not None and mode in color_modes
+
     @property
     def brightness(self) -> int | None:
         """Return the brightness (0-255) if the light supports dimming."""
-        if ColorMode.BRIGHTNESS not in self._attr_supported_color_modes:
+        if not self._supports_color_mode(ColorMode.BRIGHTNESS):
             return None
         device_data = self._get_live_device_data()
         param = device_data.get("param", "0")
@@ -160,7 +160,7 @@ class BislyLight(BislyEntity, LightEntity):
             await self.coordinator.async_set_brightness(self._device_data, value)
             return
 
-        if ATTR_RGB_COLOR in kwargs and ColorMode.RGB in self._attr_supported_color_modes:
+        if ATTR_RGB_COLOR in kwargs and self._supports_color_mode(ColorMode.RGB):
             r, g, b = kwargs[ATTR_RGB_COLOR]
             self._update_device_param({"r": r, "g": g, "b": b})
             await self.coordinator.async_set_rgb(self._device_data, r, g, b)

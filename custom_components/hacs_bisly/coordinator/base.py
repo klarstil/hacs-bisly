@@ -167,7 +167,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Step 1: get room list (matching reference script)
             try:
-                rooms_resp = await client.get_rooms()
+                rooms_resp = await client.get_rooms() or {}
             except BislyApiClientError as exc:
                 LOGGER.debug("get_rooms failed: %s", exc)
                 self._initial_data_ready.set()
@@ -613,7 +613,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         for session in list(_ACTIVE_SESSIONS.values()):
             if getattr(session, "_bid", "") == connection_id:
-                _ = asyncio.ensure_future(session.handle_bisly_ice(candidate_json))
+                self.hass.async_create_task(session.handle_bisly_ice(candidate_json))
                 return
 
         # Signal that we have received initial device data
@@ -698,10 +698,7 @@ def _extract_devices_from_param(param: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _extract_cameras_from_param(param: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    Extract flat camera list from a get_cameras controller_list response
-    where param is a dict keyed by camera ID (legacy format).
-    """
+    """Extract a flat camera list from a response keyed by camera ID."""
     cameras: list[dict[str, Any]] = []
     for cam_id_str, cam_data in param.items():
         if not isinstance(cam_data, dict):
@@ -731,11 +728,7 @@ def _extract_cameras_from_response(response: dict[str, Any] | None) -> list[dict
 
     # Case 1: param is a flat list of camera objects
     if isinstance(param, list):
-        cameras: list[dict[str, Any]] = []
-        for entry in param:
-            if isinstance(entry, dict):
-                cameras.append(dict(entry))
-        return cameras
+        return [dict(entry) for entry in param if isinstance(entry, dict)]
 
     # Case 2: param is a dict keyed by camera ID (legacy format)
     return _extract_cameras_from_param(param)
@@ -909,7 +902,7 @@ def normalize_device_lists(devices: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _apply_light_state_update(
+def _apply_light_state_update(  # noqa: PLR0917
     message: dict[str, Any],
     current: dict[str, Any],
     delta: dict[str, Any],

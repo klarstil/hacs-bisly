@@ -37,6 +37,7 @@ class BislyDoorLock(BislyEntity, LockEntity):
         room_label: str,
         door_data: dict[str, Any],
     ) -> None:
+        """Initialize the lock."""
         super().__init__(coordinator, entity_description)
         self._room_id = room_id
         self._door_id = door_data.get("id")
