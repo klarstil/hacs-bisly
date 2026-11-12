@@ -84,6 +84,15 @@ CURTAIN_CMD_GET_STATE = "3"
 VENTILATION_ITEM_FAN = "4"
 VENTILATION_ITEM_SET_FAN = "19"
 
+# Sauna item types (Bisly app SaunaItemType)
+SAUNA_ITEM_HEATING = "0"
+SAUNA_ITEM_TEMPERATURE = "1"
+SAUNA_ITEM_STREAMER = "4"
+
+# Sauna temperature bounds (Bisly app SaunaService)
+SAUNA_MIN_TEMPERATURE = 20
+SAUNA_MAX_TEMPERATURE = 110
+
 # Doors sub-command types
 DOORS_GET_AREAS = "10"
 DOORS_GET_AREAS_WITH_PIN = "11"

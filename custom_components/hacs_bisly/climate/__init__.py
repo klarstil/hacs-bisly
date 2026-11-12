@@ -9,9 +9,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from custom_components.hacs_bisly.api import BislyApiClientError
+from custom_components.hacs_bisly.climate.sauna import build_sauna_entities
 from custom_components.hacs_bisly.const import DOMAIN, LOGGER, MANUFACTURER, MODEL
 from custom_components.hacs_bisly.entity.base import BislyEntity
-from homeassistant.components.climate import ClimateEntity, ClimateEntityDescription, ClimateEntityFeature, HVACMode
+from homeassistant.components.climate import ClimateEntity, ClimateEntityDescription
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -187,7 +189,7 @@ async def async_setup_entry(
         if rid is not None:
             room_labels[rid] = room.get("label", f"Room {rid}")
 
-    entities: list[BislyClimate] = []
+    entities: list[ClimateEntity] = []
     for zone in climate_zones:
         zone_type = str(zone.get("type", ""))
         room_id = zone.get("room_id")
@@ -206,6 +208,9 @@ async def async_setup_entry(
             translation_key="bisly_climate",
         )
         entities.append(BislyClimate(coordinator, desc, room_id, room_label, zone))
+
+    # Sauna entities
+    entities.extend(build_sauna_entities(coordinator))
 
     LOGGER.debug("Adding %d Bisly climate entities", len(entities))
     async_add_entities(entities)

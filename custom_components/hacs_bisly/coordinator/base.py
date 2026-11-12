@@ -195,7 +195,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # processing and the later requests starve within the 15 s window.
             all_devices: list[dict[str, Any]] = []
             for room_id in room_ids:
-                for ctrl_type in ("1", "3", "4", "6"):
+                for ctrl_type in ("1", "3", "4", "5", "6"):
                     try:
                         resp = await client.get_room_devices(room_id, ctrl_type)
                         if resp and isinstance(resp.get("param"), dict):
@@ -276,7 +276,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         all_devices: list[dict[str, Any]] = []
 
         async def _fetch_room(room_id: int) -> None:
-            for ctrl_type in ("1", "3", "4", "6"):
+            for ctrl_type in ("1", "3", "4", "5", "6"):
                 try:
                     resp = await client.get_room_devices(room_id, ctrl_type)
                     if resp and isinstance(resp.get("param"), dict):
@@ -484,6 +484,19 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         client = self.config_entry.runtime_data.client
         await client.set_ventilation(device_data, item_type=item_type, param=param)
+
+    async def async_set_sauna(self, device_data: dict[str, Any], param: str, item_type: str) -> None:
+        """Set a sauna item (heating on/off or target temperature).
+
+        Args:
+            device_data: The full device dict from the controller_list response.
+            param: The new value (e.g. "1"/"0", or a target temperature).
+            item_type: The SaunaItemType sub-command (e.g. "0"=HEATING, "1"=TEMPERATURE).
+        """
+        self._cleanup_expired_pending_commands()
+
+        client = self.config_entry.runtime_data.client
+        await client.set_sauna(device_data, param=param, item_type=item_type)
 
     async def async_hangup_intercom(self) -> None:
         """Hang up the active intercom call."""
@@ -802,6 +815,12 @@ def normalize_device_lists(devices: list[dict[str, Any]]) -> dict[str, Any]:
             curtains.append(normalized)
         elif device_type == "4":  # ventilation
             ventilation_devices.append(normalized)
+        elif ctrl_type == "5":  # sauna
+            normalized["current_temp"] = device.get("current_temp")
+            normalized["target_temp"] = device.get("temp")
+            normalized["manual"] = device.get("manual")
+            normalized["steam"] = device.get("steam")
+            saunas.append(normalized)
         elif device_type == "11":  # video door
             doors.append(normalized)
 

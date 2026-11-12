@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from custom_components.hacs_bisly.api import BislyApiClientError
 from custom_components.hacs_bisly.const import DOMAIN, LOGGER, MANUFACTURER, MODEL
 from custom_components.hacs_bisly.entity.base import BislyEntity
+from custom_components.hacs_bisly.switch.sauna_steamer import build_sauna_steamer_entities
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -128,7 +129,7 @@ async def async_setup_entry(
         if rid is not None:
             room_labels[rid] = room.get("label", f"Room {rid}")
 
-    entities: list[BislyFloorHeatingSwitch] = []
+    entities: list[SwitchEntity] = []
     for zone in climate_zones:
         zone_type = str(zone.get("type", ""))
         room_id = zone.get("room_id")
@@ -145,5 +146,8 @@ async def async_setup_entry(
         )
         entities.append(BislyFloorHeatingSwitch(coordinator, desc, room_id, room_label, zone))
 
-    LOGGER.debug("Adding %d Bisly floor heating switches", len(entities))
+    # Sauna steamer switches
+    entities.extend(build_sauna_steamer_entities(coordinator))
+
+    LOGGER.debug("Adding %d Bisly switches", len(entities))
     async_add_entities(entities)

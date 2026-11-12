@@ -29,6 +29,7 @@ from custom_components.hacs_bisly.const import (
     CMD_CURTAINS,
     CMD_LIGHT,
     CMD_RGB,
+    CMD_SAUNA,
     CMD_VENTILATION,
     COMMAND_ACTIONS,
     COMMAND_DOORS,
@@ -489,6 +490,27 @@ class BislyApiClient:
                 "action": ACTION_GET,
                 "type": VENTILATION_ITEM_FAN,
                 "id": device_id,
+            }
+        )
+
+    async def set_sauna(self, device: dict[str, Any], param: str, item_type: str) -> dict[str, Any] | None:
+        """Set a sauna item.
+
+        Matches the Bisly app's SaunaService.updateSaunaItem: a minimal payload
+        addressed by id with the sauna item type and value.
+
+        Args:
+            device: The full device dict.
+            param: The new value (e.g. "1"/"0", or a target temperature).
+            item_type: The SaunaItemType sub-command (e.g. "0"=HEATING, "1"=TEMPERATURE).
+        """
+        return await self._request(
+            {
+                "command": CMD_SAUNA,
+                "action": ACTION_SET,
+                "id": device.get("id"),
+                "param": str(param),
+                "type": item_type,
             }
         )
 
