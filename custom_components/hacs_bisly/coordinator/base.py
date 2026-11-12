@@ -227,6 +227,15 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Live CO2/humidity readings come from a separate centralfan GET
             await self._attach_ventilation_sensors(result.get("ventilation", []))
 
+            # Scenarios / quick actions — global controller type 15
+            try:
+                actions_resp = await client.get_global_controller("15")
+                result["actions"] = _extract_actions_from_response(actions_resp)
+                LOGGER.debug("Fetched %d actions", len(result["actions"]))
+            except BislyApiClientError as exc:
+                LOGGER.debug("get_global_controller(15) failed: %s", exc)
+                result["actions"] = []
+
             # Fetch camera list (global controller type 14)
             try:
                 cameras_resp = await client.get_cameras()
@@ -303,6 +312,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             result = {**(self.data or {})}
 
+        result["actions"] = (self.data or {}).get("actions", [])
         return result
 
     async def _refresh_cameras(self, client: Any, result: dict[str, Any]) -> dict[str, Any]:
@@ -497,6 +507,15 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         client = self.config_entry.runtime_data.client
         await client.set_sauna(device_data, param=param, item_type=item_type)
+
+    async def async_exec_action(self, action_id: str) -> None:
+        """Execute a scenario/quick action by id.
+
+        Args:
+            action_id: The action id from the controller_list type-15 response.
+        """
+        client = self.config_entry.runtime_data.client
+        await client.exec_action(action_id)
 
     async def async_hangup_intercom(self) -> None:
         """Hang up the active intercom call."""
@@ -720,6 +739,29 @@ def _extract_cameras_from_response(response: dict[str, Any] | None) -> list[dict
 
     # Case 2: param is a dict keyed by camera ID (legacy format)
     return _extract_cameras_from_param(param)
+
+
+def _extract_actions_from_response(response: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Extract a flat action list from a controller_list type-15 response.
+
+    The response is global (not keyed by room), so param may be a flat list of
+    action objects or a dict of action objects.
+    """
+    if not response:
+        return []
+
+    param = response.get("param")
+    if isinstance(param, list):
+        return [dict(a) for a in param if isinstance(a, dict)]
+    if isinstance(param, dict):
+        actions: list[dict[str, Any]] = []
+        for value in param.values():
+            if isinstance(value, dict):
+                actions.append(dict(value))
+            elif isinstance(value, list):
+                actions.extend(dict(a) for a in value if isinstance(a, dict))
+        return actions
+    return []
 
 
 def _attach_camera_uuids(cameras: list[dict[str, Any]], uuid_list: list[dict[str, Any]] | None) -> None:

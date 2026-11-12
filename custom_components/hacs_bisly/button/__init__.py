@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from custom_components.hacs_bisly.api import BislyApiClientError
+from custom_components.hacs_bisly.button.scenario import build_scenario_buttons
 from custom_components.hacs_bisly.const import DOMAIN, LOGGER, MANUFACTURER, MODEL
 from custom_components.hacs_bisly.entity.base import BislyEntity
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
@@ -108,6 +109,10 @@ async def async_setup_entry(
             ButtonEntityDescription(key="intercom_hangup", translation_key="intercom_hangup"),
         )
     ]
+
+    # Scenario/quick-action buttons
+    entities.extend(build_scenario_buttons(coordinator))
+
     async_add_entities(entities)
 
     # Door-open buttons appear once the first call delivers door IDs
