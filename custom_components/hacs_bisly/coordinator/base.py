@@ -195,7 +195,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # processing and the later requests starve within the 15 s window.
             all_devices: list[dict[str, Any]] = []
             for room_id in room_ids:
-                for ctrl_type in ("1", "3", "6"):
+                for ctrl_type in ("1", "3", "4", "6"):
                     try:
                         resp = await client.get_room_devices(room_id, ctrl_type)
                         if resp and isinstance(resp.get("param"), dict):
@@ -223,6 +223,9 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             result = normalize_device_lists(all_devices)
             result["rooms"] = rooms_list or result.get("rooms", [])
+
+            # Live CO2/humidity readings come from a separate centralfan GET
+            await self._attach_ventilation_sensors(result.get("ventilation", []))
 
             # Fetch camera list (global controller type 14)
             try:
@@ -273,7 +276,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         all_devices: list[dict[str, Any]] = []
 
         async def _fetch_room(room_id: int) -> None:
-            for ctrl_type in ("1", "3", "6"):
+            for ctrl_type in ("1", "3", "4", "6"):
                 try:
                     resp = await client.get_room_devices(room_id, ctrl_type)
                     if resp and isinstance(resp.get("param"), dict):
@@ -296,6 +299,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if all_devices:
             result = normalize_device_lists(all_devices)
             result["rooms"] = rooms  # Preserve room labels from initial fetch
+            await self._attach_ventilation_sensors(result.get("ventilation", []))
         else:
             result = {**(self.data or {})}
 
@@ -331,6 +335,34 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["cameras"] = (self.data or {}).get("cameras", [])
 
         return result
+
+    async def _attach_ventilation_sensors(self, ventilation_devices: list[dict[str, Any]]) -> None:
+        """Fetch CO2/humidity for each fan and attach them to the device dict.
+
+        The controller_list type-4 response does not carry live sensor readings;
+        they come from a separate centralfan GET (the app's getFanSensorData).
+        """
+        if not ventilation_devices:
+            return
+
+        client = self.config_entry.runtime_data.client
+        for device in ventilation_devices:
+            device_id = device.get("id")
+            if device_id is None:
+                continue
+            try:
+                resp = await client.get_fan_sensor_data(str(device_id))
+            except BislyApiClientError as exc:
+                LOGGER.debug("get_fan_sensor_data id=%s failed: %s", device_id, exc)
+                continue
+
+            param = (resp or {}).get("param")
+            if isinstance(param, str):
+                with contextlib.suppress(json.JSONDecodeError):
+                    param = json.loads(param)
+            if isinstance(param, dict):
+                device["current_co2"] = param.get("current_co2")
+                device["current_humidity"] = param.get("current_humidity")
 
     async def shutdown(self) -> None:
         """Shut down the coordinator — disconnect from NATS."""
@@ -439,6 +471,19 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         client = self.config_entry.runtime_data.client
         await client.set_curtain(device_data, position=position)
+
+    async def async_set_ventilation(self, device_data: dict[str, Any], item_type: str, param: str) -> None:
+        """Set a ventilation item (e.g. fan on/off).
+
+        Args:
+            device_data: The full device dict from the controller_list response.
+            item_type: The VentilationItemType sub-command (e.g. "19" = SET_FAN).
+            param: The new value (e.g. "0"/"1").
+        """
+        self._cleanup_expired_pending_commands()
+
+        client = self.config_entry.runtime_data.client
+        await client.set_ventilation(device_data, item_type=item_type, param=param)
 
     async def async_hangup_intercom(self) -> None:
         """Hang up the active intercom call."""

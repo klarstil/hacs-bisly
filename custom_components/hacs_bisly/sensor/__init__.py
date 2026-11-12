@@ -10,8 +10,9 @@ from typing import TYPE_CHECKING
 
 from custom_components.hacs_bisly.const import DOMAIN, LOGGER, MANUFACTURER, MODEL
 from custom_components.hacs_bisly.entity.base import BislyEntity
+from custom_components.hacs_bisly.sensor.ventilation import VENTILATION_SENSOR_TYPES, BislyVentilationSensor
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorEntityDescription, SensorStateClass
-from homeassistant.const import CONCENTRATION_PARTS_PER_MILLION, PERCENTAGE, UnitOfTemperature
+from homeassistant.const import UnitOfTemperature
 from homeassistant.helpers.device_registry import DeviceInfo
 
 if TYPE_CHECKING:
@@ -123,7 +124,7 @@ async def async_setup_entry(
     climate_zones = data.get("climate_zones", [])
     # Only create sensors for rooms that actually have climate data
     rooms_with_climate = {zone.get("room_id") for zone in climate_zones if zone.get("room_id") is not None}
-    entities: list[BislySensor] = []
+    entities: list[SensorEntity] = []
 
     for room in rooms:
         room_id = room.get("id")
@@ -132,6 +133,10 @@ async def async_setup_entry(
             continue
 
         entities.extend(BislySensor(coordinator, desc, room_id, room_name) for desc in _SENSOR_TYPES)
+
+    # Ventilation CO2/humidity sensors
+    for device_data in data.get("ventilation", []):
+        entities.extend(BislyVentilationSensor(coordinator, desc, device_data) for desc in VENTILATION_SENSOR_TYPES)
 
     LOGGER.debug("Adding %d Bisly sensor entities", len(entities))
     async_add_entities(entities)

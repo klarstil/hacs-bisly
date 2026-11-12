@@ -80,6 +80,10 @@ CURTAIN_CMD_SET = "1"
 CURTAIN_CMD_QUICK = "2"
 CURTAIN_CMD_GET_STATE = "3"
 
+# Ventilation item types (Bisly app VentilationItemType)
+VENTILATION_ITEM_FAN = "4"
+VENTILATION_ITEM_SET_FAN = "19"
+
 # Doors sub-command types
 DOORS_GET_AREAS = "10"
 DOORS_GET_AREAS_WITH_PIN = "11"

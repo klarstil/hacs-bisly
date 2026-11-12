@@ -44,6 +44,7 @@ from custom_components.hacs_bisly.const import (
     SUBJECT_BROADCAST,
     SUBJECT_BROADCAST_STATUS,
     SUBJECT_ROUTING,
+    VENTILATION_ITEM_FAN,
 )
 
 from .nats_transport import BislyNATSConnectionError, BislyNATSTransport
@@ -451,14 +452,45 @@ class BislyApiClient:
             }
         )
 
-    async def set_ventilation(self, device: dict[str, Any], speed: str) -> dict[str, Any] | None:
-        """Set ventilation speed.
+    async def set_ventilation(self, device: dict[str, Any], item_type: str, param: str) -> dict[str, Any] | None:
+        """Set a ventilation item.
+
+        Matches the Bisly app's VentilationService.updateItem: a minimal payload
+        addressed by id with the ventilation item type and value.
 
         Args:
             device: The full device dict.
-            speed: Speed value.
+            item_type: The VentilationItemType sub-command (e.g. "19" = SET_FAN).
+            param: The new value (e.g. "0"/"1").
         """
-        return await self._set_device(CMD_VENTILATION, device, param_override=speed)
+        return await self._request(
+            {
+                "command": CMD_VENTILATION,
+                "action": ACTION_SET,
+                "id": device.get("id"),
+                "type": item_type,
+                "param": str(param),
+            }
+        )
+
+    async def get_fan_sensor_data(self, device_id: str) -> dict[str, Any] | None:
+        """Fetch CO2/humidity readings for a ventilation fan.
+
+        Matches the Bisly app's VentilationService.getFanSensorData. The reply
+        param is a JSON object (possibly string-encoded) with current_co2 and
+        current_humidity.
+
+        Args:
+            device_id: The fan device id.
+        """
+        return await self._request(
+            {
+                "command": CMD_VENTILATION,
+                "action": ACTION_GET,
+                "type": VENTILATION_ITEM_FAN,
+                "id": device_id,
+            }
+        )
 
     async def set_door(self, device: dict[str, Any], state: str) -> dict[str, Any] | None:
         """Set door state (lock/unlock).
