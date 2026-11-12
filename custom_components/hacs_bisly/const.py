@@ -75,6 +75,11 @@ LIGHTING_PIR_TYPES = {"5", "7"}
 LIGHTING_RGB_TYPES = {"8", "6"}
 LIGHTING_SLIDER_TYPES = {"1", "4"}
 
+# Curtain sub-command types (Bisly app CurtainsService)
+CURTAIN_CMD_SET = "1"
+CURTAIN_CMD_QUICK = "2"
+CURTAIN_CMD_GET_STATE = "3"
+
 # Doors sub-command types
 DOORS_GET_AREAS = "10"
 DOORS_GET_AREAS_WITH_PIN = "11"

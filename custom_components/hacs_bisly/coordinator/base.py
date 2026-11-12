@@ -195,7 +195,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # processing and the later requests starve within the 15 s window.
             all_devices: list[dict[str, Any]] = []
             for room_id in room_ids:
-                for ctrl_type in ("1", "3"):
+                for ctrl_type in ("1", "3", "6"):
                     try:
                         resp = await client.get_room_devices(room_id, ctrl_type)
                         if resp and isinstance(resp.get("param"), dict):
@@ -273,7 +273,7 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         all_devices: list[dict[str, Any]] = []
 
         async def _fetch_room(room_id: int) -> None:
-            for ctrl_type in ("1", "3"):
+            for ctrl_type in ("1", "3", "6"):
                 try:
                     resp = await client.get_room_devices(room_id, ctrl_type)
                     if resp and isinstance(resp.get("param"), dict):
@@ -427,6 +427,18 @@ class BislyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         client = self.config_entry.runtime_data.client
         await client.set_door(device_data, state=state)
+
+    async def async_set_curtain(self, device_data: dict[str, Any], position: str) -> None:
+        """Set curtain position (open/close).
+
+        Args:
+            device_data: The full device dict from the controller_list response.
+            position: "0" to close, "1" to open.
+        """
+        self._cleanup_expired_pending_commands()
+
+        client = self.config_entry.runtime_data.client
+        await client.set_curtain(device_data, position=position)
 
     async def async_hangup_intercom(self) -> None:
         """Hang up the active intercom call."""

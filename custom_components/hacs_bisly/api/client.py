@@ -33,6 +33,7 @@ from custom_components.hacs_bisly.const import (
     COMMAND_ACTIONS,
     COMMAND_DOORS,
     COMMAND_FONO,
+    CURTAIN_CMD_SET,
     DOORS_ARM_AREA,
     DOORS_DISARM_AREA,
     FONO_GET_CALL,
@@ -431,13 +432,24 @@ class BislyApiClient:
         return None
 
     async def set_curtain(self, device: dict[str, Any], position: str = "0") -> dict[str, Any] | None:
-        """Set curtain position.
+        """Set curtain position (open/close).
+
+        Matches the Bisly app's CurtainsService.updateCurtain: a minimal
+        payload addressed by id with the curtain sub-command type "1".
 
         Args:
             device: The full device dict.
-            position: Position value ("0" = closed, "1" = open, etc.).
+            position: Position value ("0" = closed, "1" = open).
         """
-        return await self._set_device(CMD_CURTAINS, device, param_override=position)
+        return await self._request(
+            {
+                "command": CMD_CURTAINS,
+                "action": ACTION_SET,
+                "type": CURTAIN_CMD_SET,
+                "id": device.get("id"),
+                "param": str(position),
+            }
+        )
 
     async def set_ventilation(self, device: dict[str, Any], speed: str) -> dict[str, Any] | None:
         """Set ventilation speed.

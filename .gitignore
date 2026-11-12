@@ -168,6 +168,8 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+# HA cover platform directory — must not be treated as a coverage report dir
+!custom_components/hacs_bisly/cover/
 
 # Translations
 *.mo
