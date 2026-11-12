@@ -696,6 +696,7 @@ def normalize_device_lists(devices: list[dict[str, Any]]) -> dict[str, Any]:
     curtains: list[dict[str, Any]] = []
     ventilation_devices: list[dict[str, Any]] = []
     doors: list[dict[str, Any]] = []
+    saunas: list[dict[str, Any]] = []
 
     for device in devices:
         room_id = device.pop("_room_id", 0)
@@ -785,7 +786,7 @@ def normalize_device_lists(devices: list[dict[str, Any]]) -> dict[str, Any]:
         "doors": doors,
         "curtains": curtains,
         "ventilation": ventilation_devices,
-        "saunas": [],
+        "saunas": saunas,
         "intercom": {},
     }
 

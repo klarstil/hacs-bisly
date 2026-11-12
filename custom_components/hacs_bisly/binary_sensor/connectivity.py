@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from custom_components.hacs_bisly.const import BISLY_WS_URL
 from custom_components.hacs_bisly.entity import BislyEntity
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -49,5 +50,5 @@ class BislyConnectivitySensor(BinarySensorEntity, BislyEntity):
         """Return additional state attributes."""
         return {
             "update_interval": str(self.coordinator.update_interval),
-            "api_endpoint": "JSONPlaceholder (Demo)",
+            "api_endpoint": BISLY_WS_URL,
         }
