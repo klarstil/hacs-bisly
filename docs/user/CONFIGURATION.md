@@ -131,21 +131,10 @@ automation:
 
 ### Camera Live Streaming
 
-Live view of the `hacs_bisly` camera entities needs a server-side WebRTC
-terminator: the browser-facing WebRTC leg has to be relayed to the Bisly
-videoserver.
-
-- When **aiortc** can be installed in Home Assistant, streaming happens in-process
-  and there is nothing to configure.
-- On Home Assistant versions that pin a PyAV major version aiortc cannot accept
-  (for example HA 2026.10 pins `av==19` while aiortc requires `av<18`), install
-  the **Bisly Stream Bridge** app. The integration detects it automatically
-  through Supervisor and streams its RTSP output via Home Assistant's go2rtc/HLS
-  pipeline. Add the `go2rtc` integration for low-latency WebRTC, otherwise HLS
-  is served.
-
-If neither is available, the camera keeps working for snapshots but reports no
-live stream.
+Live view of the `hacs_bisly` camera entities is handled in-process via
+**aiortc** (a bundled dependency). There is nothing to configure and no add-on
+or extra integration is required — the camera entities stream natively through
+WebRTC.
 
 ### Multiple Instances
 

@@ -1,11 +1,10 @@
 """Native aiortc WebRTC support for the Bisly camera.
 
 Terminates the Bisly WebRTC leg in-process and bridges its video track to the
-browser's peer connection. This needs aiortc, which currently cannot be
-installed alongside Home Assistant releases that pin a PyAV major version
-aiortc does not accept (aiortc requires ``av<18``). When aiortc is missing,
-``BislyCamera`` omits :class:`WebRTCNativeMixin` and streams through Home
-Assistant's go2rtc/HLS pipeline via ``stream_source()`` instead.
+browser's peer connection. Requires aiortc (pinned in the integration
+manifest); aiortc 1.16.0 accepts the PyAV version Home Assistant pins. When
+aiortc is missing, ``BislyCamera`` omits :class:`WebRTCNativeMixin` and serves
+snapshots only.
 """
 
 from __future__ import annotations
@@ -404,9 +403,7 @@ class _BislyWebRTCSession:
 class WebRTCNativeMixin:
     """Native aiortc WebRTC offer handling, mixed into ``BislyCamera`` when aiortc is available.
 
-    The offer/candidate handlers exist only when aiortc is importable. Without
-    them ``BislyCamera`` inherits ``Camera``'s default implementation, so Home
-    Assistant falls back to its go2rtc/HLS pipeline via ``stream_source()``.
+    The offer/candidate handlers exist only when aiortc is importable.
     """
 
     if TYPE_CHECKING:

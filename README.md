@@ -73,12 +73,7 @@ After setup, click **Configure** on the integration to adjust:
 
 ## Camera Live Streaming
 
-Bisly cameras only stream through a proprietary WebRTC protocol. The integration supports two paths for live view:
-
-- **In-process (`aiortc`)**: If `aiortc` can be installed in your Home Assistant environment, the camera streams natively via WebRTC. Nothing to configure.
-- **Bisly Stream Bridge add-on**: On Home Assistant versions that pin a PyAV version `aiortc` cannot accept, install the **Bisly Stream Bridge** HAOS add-on (in [`addons/bisly-stream-bridge/`](addons/bisly-stream-bridge/)). It terminates the Bisly WebRTC leg and republishes it as RTSP. The integration discovers the add-on automatically through Supervisor and streams via Home Assistant's go2rtc/HLS pipeline — add the `go2rtc` integration for low-latency WebRTC.
-
-Without either, cameras still provide snapshots but no live stream.
+Bisly cameras stream through a proprietary WebRTC protocol. The integration terminates it natively in-process via `aiortc` (a bundled dependency), so the camera entities provide live view directly — no add-on and no extra integration required.
 
 ## Intercom
 
