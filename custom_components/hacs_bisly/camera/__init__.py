@@ -9,8 +9,6 @@ from typing import TYPE_CHECKING, Any
 import aiohttp
 
 from custom_components.hacs_bisly.const import CAMERA_IMAGE_CACHE_WINDOW, CAMERA_IMAGE_URL, DOMAIN, MANUFACTURER, MODEL
-from custom_components.hacs_bisly.data import DATA_STREAM_BRIDGE
-from custom_components.hacs_bisly.utils import camera_slug
 from homeassistant.components.camera import Camera, CameraEntityDescription, CameraEntityFeature
 from homeassistant.helpers.device_registry import DeviceInfo
 
@@ -25,7 +23,7 @@ PARALLEL_UPDATES = 0
 
 
 class _BislyCameraBase(Camera):
-    """Shared Bisly camera behaviour: cloud snapshot and live-stream source."""
+    """Shared Bisly camera behaviour: cloud snapshot."""
 
     _attr_has_entity_name = False
     _attr_is_streaming = False
@@ -78,31 +76,11 @@ class _BislyCameraBase(Camera):
             pass
         return None
 
-    async def stream_source(self) -> str | None:
-        """Return the RTSP source of the stream.
-
-        Only used when the camera has no native WebRTC implementation (i.e.
-        aiortc is unavailable). Points at the ``bisly-stream-bridge`` app's
-        per-camera RTSP endpoint so Home Assistant's go2rtc/HLS pipeline can
-        stream it. Returns None when the bridge has not registered itself.
-        """
-        info = self.hass.data.get(DATA_STREAM_BRIDGE)
-        if info is None:
-            return None
-        url = info.rtsp_url(self._cid)
-        if url is None:
-            # The bridge's camera list did not cover this id — derive the path
-            # from the label, mirroring the app's own slugification.
-            url = f"rtsp://{info.host}:{info.port}/{camera_slug(self._attr_name or f'camera_{self._cid}')}"
-        return url
-
 
 class BislyCamera(webrtc.WebRTCNativeMixin, _BislyCameraBase):
     """Bisly camera.
 
-    Streams natively through an in-process aiortc peer connection when aiortc
-    is importable; otherwise it exposes ``stream_source()`` so Home Assistant's
-    go2rtc/HLS pipeline can stream the bridge app's RTSP.
+    Streams natively through an in-process aiortc peer connection.
     """
 
 
